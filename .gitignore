@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+build/
+next-env.d.ts
+
+# production
+dist/
+
+# secrets — .env.example is the template that IS committed
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# generated design tokens (regenerate with `npm run tokens:build`)
+# src/app/tokens.css is intentionally NOT ignored: it is committed so the app
+# builds without a token-compilation step. tokens/tokens.json is the source.
+
+# misc
+.DS_Store
+Thumbs.db
+*.pem
+.vercel
+*.tsbuildinfo
+coverage/
+npm-debug.log*
+yarn-error.log*

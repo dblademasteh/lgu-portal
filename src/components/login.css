@@ -1,0 +1,269 @@
+/* Login surface: two-column on wide viewports, stacked on narrow. */
+
+/* ------------------------------------------------------------------ */
+/* Layout                                                              */
+/* ------------------------------------------------------------------ */
+
+.auth-layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--semantic-space-section);
+  align-content: center;
+  width: 100%;
+  max-width: 68rem;
+  margin-inline: auto;
+  padding: var(--semantic-space-section) var(--semantic-space-page-gutter);
+}
+
+.auth-pitch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--semantic-space-section);
+  min-width: 0;
+}
+
+.auth-pitch-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--semantic-space-gap-md);
+}
+
+.auth-pitch-lede {
+  max-width: 34rem;
+}
+
+.auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--semantic-space-gap-xl);
+  padding: var(--component-auth-card-padding);
+  border-radius: var(--component-auth-card-radius);
+  background-color: var(--component-auth-card-bg);
+  border-color: var(--component-auth-card-border);
+  box-shadow: var(--component-auth-card-shadow);
+  backdrop-filter: blur(var(--component-auth-card-blur)) saturate(var(--semantic-glass-saturate));
+  -webkit-backdrop-filter: blur(var(--component-auth-card-blur)) saturate(var(--semantic-glass-saturate));
+  width: 100%;
+  max-width: var(--component-auth-card-max-width);
+  margin-inline: auto;
+}
+
+.auth-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primitive-space-1);
+}
+
+.auth-card-foot {
+  padding-block-start: var(--semantic-space-gap-md);
+  border-block-start: var(--semantic-divider-thickness) solid var(--semantic-divider-color);
+}
+
+.auth-card-foot p {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primitive-space-1);
+  line-height: var(--semantic-text-leading-snug);
+}
+
+/* ------------------------------------------------------------------ */
+/* Form                                                                */
+/* ------------------------------------------------------------------ */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--semantic-space-gap-lg);
+}
+
+.service-context {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--semantic-space-gap-md);
+  border: 1px solid var(--semantic-badge-accent-border);
+  border-radius: var(--semantic-radius-md);
+  background-color: var(--semantic-badge-accent-bg);
+  color: var(--semantic-badge-accent-fg);
+  font-size: var(--semantic-text-size-sm);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primitive-space-2);
+}
+
+.field-label {
+  font-size: var(--semantic-input-label-size);
+  font-weight: var(--semantic-text-weight-semibold);
+  letter-spacing: var(--semantic-input-label-spacing);
+  text-transform: uppercase;
+  color: var(--semantic-input-label-color);
+}
+
+.field-input {
+  width: 100%;
+  height: var(--semantic-input-height);
+  padding: var(--semantic-input-padding-y) var(--semantic-input-padding-x);
+  background-color: var(--semantic-input-bg);
+  border: 1px solid var(--semantic-input-border);
+  border-radius: var(--semantic-input-radius);
+  color: var(--semantic-input-fg);
+  font-size: var(--semantic-input-font-size);
+  transition:
+    border-color var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard),
+    box-shadow var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard),
+    background-color var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard);
+}
+
+.field-input::placeholder {
+  color: var(--semantic-input-placeholder);
+}
+
+.field-input:hover:not(:disabled) {
+  border-color: var(--semantic-input-border-hover);
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: var(--semantic-input-border-focus);
+  box-shadow: var(--semantic-input-shadow-focus);
+}
+
+.field-input:disabled {
+  background-color: var(--semantic-input-disabled-bg);
+  color: var(--semantic-input-disabled-fg);
+  cursor: not-allowed;
+}
+
+.field-input[aria-invalid='true'] {
+  border-color: var(--semantic-input-error-color);
+}
+
+.field-input[aria-invalid='true']:focus {
+  box-shadow: var(--semantic-input-shadow-focus);
+}
+
+.field-input-otp {
+  font-family: var(--semantic-font-family-mono);
+  font-size: var(--semantic-text-size-lg);
+  letter-spacing: var(--primitive-space-3);
+  text-align: center;
+}
+
+.field-error {
+  font-size: var(--semantic-text-size-xs);
+  color: var(--semantic-input-error-color);
+}
+
+.field-link {
+  align-self: flex-start;
+  font-size: var(--semantic-text-size-xs);
+  color: var(--semantic-color-accent);
+  text-decoration: underline;
+  text-underline-offset: var(--semantic-layout-underline-offset);
+}
+
+.field-link:hover:not(:disabled) {
+  color: var(--primitive-color-cyan-300);
+}
+
+.field-link:disabled {
+  color: var(--semantic-color-subtle-foreground);
+  cursor: not-allowed;
+}
+
+/* ------------------------------------------------------------------ */
+/* Notices                                                             */
+/* ------------------------------------------------------------------ */
+
+.login-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--semantic-alert-gap);
+  padding: var(--semantic-alert-padding);
+  border: 1px solid var(--semantic-alert-border);
+  border-radius: var(--semantic-alert-radius);
+  background-color: var(--semantic-alert-bg);
+  color: var(--semantic-alert-fg);
+  font-size: var(--semantic-alert-font-size);
+  line-height: var(--semantic-text-leading-snug);
+}
+
+.login-notice[data-kind='info'] {
+  background-color: var(--semantic-badge-info-bg);
+  border-color: var(--semantic-badge-info-border);
+  color: var(--semantic-badge-info-fg);
+}
+
+/* ------------------------------------------------------------------ */
+/* Trust signals                                                       */
+/* ------------------------------------------------------------------ */
+
+.trust-signals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--semantic-space-gap-md);
+}
+
+.trust-signal {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--primitive-space-3);
+}
+
+.trust-signal-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--primitive-space-5);
+  height: var(--primitive-space-5);
+  flex-shrink: 0;
+  border-radius: var(--semantic-radius-pill);
+  background-color: var(--semantic-badge-success-bg);
+  border: 1px solid var(--semantic-badge-success-border);
+  color: var(--semantic-color-success-foreground);
+}
+
+.trust-signal-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trust-signal-text strong {
+  font-size: var(--semantic-text-size-sm);
+  font-weight: var(--semantic-text-weight-semibold);
+  color: var(--semantic-color-foreground);
+}
+
+.trust-signal-text span {
+  font-size: var(--semantic-text-size-xs);
+  line-height: var(--semantic-text-leading-normal);
+  color: var(--semantic-color-subtle-foreground);
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive                                                          */
+/* ------------------------------------------------------------------ */
+
+@media (min-width: 60rem) {
+  .auth-layout {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--semantic-space-3xl);
+  }
+
+  .auth-pitch {
+    padding-inline-end: var(--semantic-space-section);
+  }
+}
+
+@media (max-width: 30rem) {
+  .field-input-otp {
+    letter-spacing: var(--primitive-space-2);
+  }
+}

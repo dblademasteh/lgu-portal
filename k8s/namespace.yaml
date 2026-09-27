@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: lgu-portal
+  labels:
+    app.kubernetes.io/name: lgu-portal
+    app.kubernetes.io/part-of: lgu-portal

@@ -1,0 +1,106 @@
+
+> lgu-portal@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.5.26
+   - Local:        http://localhost:3000
+   - Network:      http://100.98.51.78:3000
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.2s
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 1289ms (158 modules)
+ ○ Compiling /api/health/liveness ...
+ ✓ Compiled /api/health/liveness in 3.6s (339 modules)
+ GET /api/health/liveness 200 in 4063ms
+ ○ Compiling /api/oidc/jwks ...
+ ✓ Compiled /api/oidc/jwks in 1627ms (346 modules)
+ GET /api/oidc/jwks 200 in 1803ms
+ ✓ Compiled /.well-known/openid-configuration in 299ms (351 modules)
+ GET /.well-known/openid-configuration 200 in 419ms
+ GET /api/oidc/jwks 200 in 48ms
+ ○ Compiling /api/auth/login ...
+ ✓ Compiled /api/auth/login in 3.1s (956 modules)
+[Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+ ⨯ uncaughtException: [Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+ ⨯ uncaughtException:  [Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+[Error: the worker thread exited]
+ ⨯ uncaughtException: [Error: the worker thread exited]
+ ⨯ uncaughtException:  [Error: the worker thread exited]
+ POST /api/auth/login 200 in 3585ms
+Error: the worker has exited
+    at record (src\lib\auth\audit.ts:83:12)
+    at completeSignIn (src\app\api\auth\login\route.ts:248:9)
+  81 |     // Structured single-line log, greppable by traceId.
+  82 |     const { logger } = require('@/lib/logging');
+> 83 |     logger.info(
+     |            ^
+  84 |       { traceId: entry.traceId, event, outcome, actorId: entry.actorId, target: entry.target, detail: entry.detail },
+  85 |       `[audit] ${entry.traceId} ${event} ${outcome}`,
+  86 |     );
+ ⨯ uncaughtException: Error: the worker has exited
+    at record (src\lib\auth\audit.ts:83:12)
+    at completeSignIn (src\app\api\auth\login\route.ts:248:9)
+  81 |     // Structured single-line log, greppable by traceId.
+  82 |     const { logger } = require('@/lib/logging');
+> 83 |     logger.info(
+     |            ^
+  84 |       { traceId: entry.traceId, event, outcome, actorId: entry.actorId, target: entry.target, detail: entry.detail },
+  85 |       `[audit] ${entry.traceId} ${event} ${outcome}`,
+  86 |     );
+ ⨯ uncaughtException:  Error: the worker has exited
+    at record (src\lib\auth\audit.ts:83:12)
+    at completeSignIn (src\app\api\auth\login\route.ts:248:9)
+  81 |     // Structured single-line log, greppable by traceId.
+  82 |     const { logger } = require('@/lib/logging');
+> 83 |     logger.info(
+     |            ^
+  84 |       { traceId: entry.traceId, event, outcome, actorId: entry.actorId, target: entry.target, detail: entry.detail },
+  85 |       `[audit] ${entry.traceId} ${event} ${outcome}`,
+  86 |     );
+ ○ Compiling /api/session ...
+ ✓ Compiled /api/session in 542ms (971 modules)
+ GET /api/session 200 in 736ms
+[Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+ ⨯ uncaughtException: [Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+ ⨯ uncaughtException:  [Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+[Error: the worker thread exited]
+ ⨯ uncaughtException: [Error: the worker thread exited]
+ ⨯ uncaughtException:  [Error: the worker thread exited]
+ ✓ Compiled /api/oidc/authorize in 408ms (974 modules)
+ GET /api/oidc/authorize?client_id=lgu-hrms&redirect_uri=http%3A%2F%2Flocalhost%3A4000%2Fapi%2Foidc%2Fcallback&response_type=code&code_challenge=wggEemBYDYTv6rwX31QyEYTow6Y_ad9Gr_uM0GmuD0M&code_challenge_method=S256&scope=openid+profile+email+employee_id+roles&state=ssn-test&nonce=n1 302 in 559ms
+[Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+ ⨯ uncaughtException: [Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+ ⨯ uncaughtException:  [Error: Cannot find module 'D:\Users\EngrFire\Desktop\lgu-portal\.next\server\vendor-chunks\lib\worker.js'] {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+[Error: the worker thread exited]
+ ⨯ uncaughtException: [Error: the worker thread exited]
+ ⨯ uncaughtException:  [Error: the worker thread exited]
+[?25h

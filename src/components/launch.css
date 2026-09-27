@@ -1,0 +1,163 @@
+/* Launch handoff surface: the simulated downstream app. */
+
+.launch-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--semantic-space-gap-lg);
+}
+
+.launch-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--primitive-space-4);
+  min-width: 0;
+}
+
+.launch-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--primitive-space-14);
+  height: var(--primitive-space-14);
+  flex-shrink: 0;
+  border-radius: var(--semantic-radius-lg);
+  background-color: hsl(var(--tile-hue) 82% 66% / 0.14);
+  border: 1px solid hsl(var(--tile-hue) 82% 68% / 0.32);
+  color: hsl(var(--tile-hue) 82% 66%);
+}
+
+.launch-identity-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--semantic-space-gap-sm);
+  min-width: 0;
+}
+
+.launch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--primitive-space-4);
+  align-items: start;
+}
+
+.launch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--semantic-space-gap-md);
+  padding-block-start: var(--semantic-space-gap-md);
+  border-block-start: var(--semantic-divider-thickness) solid var(--semantic-divider-color);
+}
+
+/* ---- token shape ------------------------------------------------- */
+
+.token-shape {
+  display: flex;
+  flex-direction: column;
+  gap: var(--primitive-space-1);
+}
+
+.token-shape-part {
+  display: flex;
+  align-items: baseline;
+  gap: var(--primitive-space-2);
+}
+
+.token-shape-label {
+  font-size: var(--semantic-text-size-xs);
+  color: var(--semantic-color-subtle-foreground);
+  text-transform: uppercase;
+  letter-spacing: var(--semantic-text-tracking-wide);
+  min-width: 4.5rem;
+}
+
+.token-dump {
+  padding: var(--primitive-space-3);
+  border-radius: var(--semantic-radius-sm);
+  background-color: var(--semantic-color-surface-sunken);
+  border: 1px solid var(--semantic-color-border-subtle);
+  color: var(--semantic-color-muted-foreground);
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+/* ---- flow steps -------------------------------------------------- */
+
+.flow-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--semantic-space-gap-md);
+  counter-reset: step;
+}
+
+.flow-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--primitive-space-3);
+}
+
+.flow-step-n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--primitive-space-6);
+  height: var(--primitive-space-6);
+  flex-shrink: 0;
+  border-radius: var(--semantic-radius-pill);
+  background-color: var(--semantic-color-secondary);
+  border: 1px solid var(--semantic-color-border);
+  color: var(--semantic-color-foreground);
+  font-size: var(--semantic-text-size-xs);
+  font-weight: var(--semantic-text-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.flow-step-text strong {
+  font-size: var(--semantic-text-size-sm);
+  font-weight: var(--semantic-text-weight-semibold);
+  color: var(--semantic-color-foreground);
+}
+
+.flow-step-text span {
+  font-size: var(--semantic-text-size-xs);
+  line-height: var(--semantic-text-leading-normal);
+  color: var(--semantic-color-subtle-foreground);
+}
+
+/* ---- collapsible raw claims -------------------------------------- */
+
+.launch-details summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--primitive-space-2);
+  color: var(--semantic-color-muted-foreground);
+}
+
+.launch-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.launch-details summary::after {
+  content: '▾';
+  color: var(--semantic-color-subtle-foreground);
+  transition: transform var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard);
+}
+
+.launch-details[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.launch-details[open] summary {
+  margin-block-end: var(--semantic-space-gap-md);
+}

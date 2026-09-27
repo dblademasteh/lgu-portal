@@ -1,0 +1,150 @@
+/* Button — every value here comes from the component or semantic token layer. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--component-button-gap);
+  border: 1px solid transparent;
+  font-family: var(--component-button-font-family);
+  font-size: var(--component-button-font-size);
+  font-weight: var(--component-button-font-weight);
+  letter-spacing: var(--component-button-letter-spacing);
+  border-radius: var(--component-button-radius);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition:
+    background-color var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard),
+    border-color var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard),
+    color var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard),
+    box-shadow var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard),
+    transform var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  cursor: not-allowed;
+  opacity: var(--component-button-disabled-opacity);
+  box-shadow: var(--primitive-shadow-none);
+}
+
+.btn-full {
+  width: 100%;
+}
+
+.btn-sm { height: var(--component-button-height-sm); padding-inline: var(--primitive-space-3); }
+.btn-md { height: var(--component-button-height-md); padding-inline: var(--component-button-padding-x); }
+.btn-lg { height: var(--component-button-height-lg); padding-inline: var(--primitive-space-5); }
+
+.btn-label {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ---- primary ---------------------------------------------------- */
+
+.btn-primary {
+  background-color: var(--component-button-primary-bg);
+  color: var(--component-button-primary-fg);
+  border-color: var(--component-button-primary-border);
+  box-shadow: var(--component-button-primary-shadow);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--component-button-primary-hover-bg);
+}
+
+.btn-primary:active:not(:disabled) {
+  background-color: var(--component-button-primary-active-bg);
+  box-shadow: var(--primitive-shadow-none);
+}
+
+/* ---- secondary -------------------------------------------------- */
+
+.btn-secondary {
+  background-color: var(--component-button-secondary-bg);
+  color: var(--component-button-secondary-fg);
+  border-color: var(--component-button-secondary-border);
+  box-shadow: var(--component-button-secondary-shadow);
+  backdrop-filter: blur(var(--semantic-glass-blur-subtle));
+  -webkit-backdrop-filter: blur(var(--semantic-glass-blur-subtle));
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--component-button-secondary-hover-bg);
+  border-color: var(--semantic-color-border-strong);
+}
+
+.btn-secondary:active:not(:disabled) {
+  background-color: var(--component-button-secondary-active-bg);
+}
+
+/* ---- ghost ------------------------------------------------------ */
+
+.btn-ghost {
+  background-color: var(--component-button-ghost-bg);
+  color: var(--component-button-ghost-fg);
+  border-color: var(--component-button-ghost-border);
+  box-shadow: var(--component-button-ghost-shadow);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--component-button-ghost-hover-bg);
+  color: var(--component-button-ghost-hover-fg);
+}
+
+.btn-ghost:active:not(:disabled) {
+  background-color: var(--component-button-ghost-active-bg);
+}
+
+/* ---- danger ----------------------------------------------------- */
+
+.btn-danger {
+  background-color: var(--component-button-danger-bg);
+  color: var(--component-button-danger-fg);
+  border-color: var(--component-button-danger-border);
+  box-shadow: var(--component-button-danger-shadow);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--component-button-danger-hover-bg);
+}
+
+.btn-danger:active:not(:disabled) {
+  background-color: var(--component-button-danger-active-bg);
+}
+
+/* ---- link ------------------------------------------------------- */
+
+.btn-link {
+  background-color: var(--component-button-link-bg);
+  color: var(--component-button-link-fg);
+  border-color: var(--component-button-link-border);
+  box-shadow: var(--component-button-link-shadow);
+  padding-inline: var(--primitive-space-1);
+  text-decoration: underline;
+  text-underline-offset: var(--semantic-layout-underline-offset);
+  text-decoration-thickness: 1px;
+}
+
+.btn-link:hover:not(:disabled) {
+  color: var(--component-button-link-hover-fg);
+  background-color: var(--component-button-link-hover-bg);
+}
+
+.btn-link:active:not(:disabled) {
+  background-color: var(--component-button-link-active-bg);
+}
