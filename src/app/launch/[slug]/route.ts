@@ -30,20 +30,9 @@ type Context = { params: Promise<{ slug: string }> };
 
 export async function GET(request: NextRequest, { params }: Context) {
   const { slug } = await params;
-  // Throws NEXT_REDIRECT for a signed-out viewer, an unknown system, or a
-  // viewer without the role. Next.js turns that into the redirect response.
+  // Throws NEXT_REDIRECT for a signed-out viewer, an unknown system, a
+  // non-launchable system, or a viewer without the role.
   const { viewer, system } = await requireSystemAccess(slug);
-
-  // A system in maintenance is visible but not launchable. Say so plainly
-  // instead of redirecting to a flow that would be denied anyway.
-  if (system.status === 'maintenance' && !viewer.user.roles.includes('admin')) {
-    return NextResponse.redirect(
-      new URL(
-        `/unauthorized?system=${encodeURIComponent(slug)}&reason=maintenance`,
-        request.url,
-      ),
-    );
-  }
 
   const clientId = clientIdFor(system);
 

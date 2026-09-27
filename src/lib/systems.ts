@@ -324,11 +324,12 @@ export const CATEGORIES: SystemCategory[] = [
 
 /** Server-side authorization check. The single source of truth for access. */
 export function canAccess(system: System, roles: readonly Role[]): boolean {
+  if (!isLaunchable(system)) return false;
   if (system.allowedRoles.length === 0) return true;
   return system.allowedRoles.some((role) => roles.includes(role));
 }
 
-/** Status is advisory: it shapes the tile, it does not gate the launch. */
+/** Whether a system can be launched. Maintenance systems are gated by canAccess. */
 export function isLaunchable(system: System): boolean {
   return system.status !== 'maintenance';
 }
