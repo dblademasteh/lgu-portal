@@ -6,6 +6,7 @@
 
 import { requireAdmin } from '@/lib/admin/guards';
 import { listSystems } from '@/lib/systems';
+import { listClients } from '@/lib/oidc';
 import { getSessionStats } from '@/lib/auth/sessions';
 import { getRateLimitStats } from '@/lib/auth/rate-limit';
 import { getAuditStats } from '@/lib/auth/audit';
@@ -22,12 +23,7 @@ export const metadata: Metadata = {
   title: 'Dashboard',
 };
 
-const STAT_CARDS = [
-  { label: 'Systems', value: '12', href: '/admin/systems', icon: 'server', tone: 'primary' },
-  { label: 'Active Sessions', value: '—', href: '/admin/sessions', icon: 'users', tone: 'success' },
-  { label: 'OIDC Clients', value: '12', href: '/admin/clients', icon: 'key', tone: 'info' },
-  { label: 'Audit Events (24h)', value: '—', href: '/admin/audit', icon: 'activity', tone: 'warning' },
-] as const;
+const oidcClients = listClients();
 
 export default async function AdminDashboard() {
   const admin = await requireAdmin();
@@ -77,8 +73,8 @@ export default async function AdminDashboard() {
             />
             <StatCard
               label="OIDC Clients"
-              value={12}
-              subValue={`${12} registered`}
+              value={oidcClients.length}
+              subValue={`${oidcClients.length} registered`}
               href="/admin/clients"
               icon="key"
               tone="info"

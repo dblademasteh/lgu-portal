@@ -45,7 +45,7 @@ export type UserRecord = {
   lastSignIn?: number;
 };
 
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? 'Lgu@Portal2026';
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? (() => { throw new Error('DEMO_PASSWORD environment variable must be set.'); })();
 
 const USER_SEED: Array<
   Omit<UserRecord, 'passwordHash'> & { password: string }

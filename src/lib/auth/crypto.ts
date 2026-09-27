@@ -14,8 +14,8 @@
  *    so a length mismatch cannot be used as an oracle.
  */
 
-import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
+import { createHash, createHmac, randomBytes, scrypt, timingSafeEqual } from 'crypto';
+import { promisify } from 'util';
 
 const scryptAsync = promisify(scrypt) as (
   password: string | Buffer,

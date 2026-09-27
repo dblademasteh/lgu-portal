@@ -23,7 +23,7 @@
  * mounted secrets, or every restart invalidates every outstanding token.
  */
 
-import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
+import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'crypto';
 import { randomToken, type JwtClaims } from '@/lib/auth/crypto';
 
 export type JwtHeader = { alg: string; typ: string; kid?: string };

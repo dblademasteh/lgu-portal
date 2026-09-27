@@ -28,6 +28,8 @@ export interface ClientRecord {
   allowedRoles: Role[];
   /** `null` when the client is not one of the demo systems (e.g. an external RP). */
   systemSlug: string | null;
+  /** Hashed or plaintext secret for confidential clients; absent for public clients. */
+  clientSecret: string | null;
   createdAt: number;
 }
 
@@ -54,6 +56,7 @@ function seedClients(): void {
     scopes: ['openid', 'profile', 'email', 'employee_id', 'roles'],
     allowedRoles: [],
     systemSlug: null,
+    clientSecret: null,
     createdAt: Date.now(),
   };
 
@@ -76,7 +79,7 @@ export function registerClientInStore(
   if (registry.has(record.clientId)) {
     throw new Error(`Client ${record.clientId} already exists`);
   }
-  const full: ClientRecord = { ...record, createdAt: record.createdAt ?? Date.now() };
+  const full: ClientRecord = { ...record, createdAt: record.createdAt ?? Date.now(), clientSecret: record.clientSecret ?? null };
   registry.set(full.clientId, full);
   return full;
 }
@@ -85,17 +88,20 @@ export function deleteClientRecord(clientId: string): boolean {
   return registry.delete(clientId);
 }
 
-/**
- * Rotate the secret for a confidential client. Public clients (`none` auth) have
+/** Rotate the secret for a confidential client. Public clients (`none` auth) have
  * no secret — surface that distinctly so the UI can explain it instead of
- * inventing a meaningless value.
- */
+ * inventing a meaningless value. */
 export function rotateClientSecretInStore(clientId: string): string {
   const record = registry.get(clientId);
   if (!record) throw new Error(`Client ${clientId} not found`);
-  throw new Error(
-    `Client ${clientId} is public (PKCE only); no client secret is configured to rotate.`,
-  );
+  if (!record.systemSlug) {
+    throw new Error(
+      `Client ${clientId} is public (PKCE only); no client secret is configured to rotate.`,
+    );
+  }
+  const secret = crypto.randomUUID();
+  record.clientSecret = secret;
+  return secret;
 }
 
 export function systemForRecord(record: ClientRecord): System | null {

@@ -114,7 +114,7 @@ export function clientAllows(client: OidcClient, roles: readonly Role[]): boolea
 function toClient(record: ClientRecord): OidcClient {
   return {
     clientId: record.clientId,
-    clientSecret: crypto.randomUUID(), // public client; placeholder
+    clientSecret: record.clientSecret ?? crypto.randomUUID(),
     system: record.systemSlug ? getSystem(record.systemSlug) ?? null : null,
     allowedRoles: record.allowedRoles,
     redirectUris: record.redirectUris,
@@ -192,6 +192,7 @@ export async function registerClient(params: RegisterClientParams): Promise<Oidc
     scopes: params.scopes,
     allowedRoles: [],
     systemSlug: params.systemSlug || null,
+    clientSecret: null,
   };
   const persisted = registerClientInStore(record);
   return toClient(persisted);

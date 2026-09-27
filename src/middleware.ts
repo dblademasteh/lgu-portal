@@ -15,6 +15,7 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
+import { openSessionCookie } from '@/lib/auth/session-store';
 
 const SESSION_COOKIE = 'lgu_sso_session';
 
@@ -22,18 +23,6 @@ const SESSION_COOKIE = 'lgu_sso_session';
 const PROTECTED_PREFIXES = ['/portal', '/account', '/launch'];
 
 const PUBLIC_PREFIXES = ['/login', '/api/auth/login', '/api/oidc', '/_next', '/favicon'];
-
-function readCookie(request: NextRequest, name: string): string | null {
-  const header = request.headers.get('cookie');
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const separator = part.indexOf('=');
-    if (separator === -1) continue;
-    if (part.slice(0, separator).trim() !== name) continue;
-    return decodeURIComponent(part.slice(separator + 1).trim());
-  }
-  return null;
-}
 
 function isPublic(pathname: string): boolean {
   return PUBLIC_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
@@ -49,8 +38,13 @@ export function middleware(request: NextRequest) {
   );
   if (!isProtected) return NextResponse.next();
 
-  const sessionCookie = readCookie(request, SESSION_COOKIE);
-  if (sessionCookie && sessionCookie.includes('.')) return NextResponse.next();
+  const cookieHeader = request.headers.get('cookie');
+  const sessionCookieValue = cookieHeader
+    ?.split(';')
+    .find((part) => part.trim().startsWith(`${SESSION_COOKIE}=`))
+    ?.split('=')[1];
+
+  if (sessionCookieValue && openSessionCookie(sessionCookieValue)) return NextResponse.next();
 
   // Preserve where they were headed so sign-in can return them there.
   const loginUrl = new URL('/login', request.url);

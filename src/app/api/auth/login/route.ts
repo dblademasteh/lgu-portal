@@ -12,7 +12,7 @@ import { authenticate } from '@/lib/auth/users';
 import { createSession, setSessionCookie } from '@/lib/auth/sessions';
 import { record } from '@/lib/auth/audit';
 import { check, reset } from '@/lib/auth/rate-limit';
-import { randomNumericCode } from '@/lib/auth/crypto';
+import { randomNumericCode, safeEqual } from '@/lib/auth/crypto';
 import { safeNextPath } from '@/lib/redirect';
 
 const GENERIC_FAILURE = 'Sign-in failed. Check your credentials and try again.';
@@ -134,9 +134,9 @@ export async function POST(request: NextRequest) {
       return fail('rate_limited', mfaLimit.message, mfaLimit.retryAfterSeconds, 429);
     }
 
-    // Constant-time compare against the server-held code. Accepting a fixed
-    // '000000' would defeat the second factor, so that shortcut is gone.
-    if (body.mfaCode?.trim() !== challenge.code) {
+// Constant-time compare against the server-held code. Accepting a fixed
+      // '000000' would defeat the second factor, so that shortcut is gone.
+      if (!safeEqual(body.mfaCode?.trim() ?? '', challenge.code)) {
       record('auth.mfa.failure', 'failure', { actorId: challenge.userId, ip, userAgent });
       return fail('mfa_invalid', 'That verification code is not correct.');
     }

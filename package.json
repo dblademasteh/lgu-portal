@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.mjs",
     "tokens:build": "node scripts/generate-tokens.mjs",

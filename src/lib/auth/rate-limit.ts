@@ -106,16 +106,13 @@ export function getRateLimitStats() {
     if (bucket.resetAt > Date.now()) {
       activeBuckets += 1;
     }
-    // Approximate: count buckets that were created/modified in last 5 min
-    // We don't track creation time, so approximate from resetAt
-    if (bucket.resetAt > Date.now() - 5 * 60 * 1000) {
+    if (bucket.resetAt > fiveMinutesAgo) {
       total5m += 1;
+      if (bucket.count >= POLICIES.identity.max || bucket.count >= POLICIES.client.max) {
+        blocked5m += 1;
+      }
     }
   }
 
-  // Count currently blocked identities (would need separate tracking)
-  // This is a placeholder; real implementation would track blocked count separately
-  const blocked5mCount = 0;
-
-  return { activeBuckets, blocked5m: blocked5mCount, total5m };
+  return { activeBuckets, blocked5m, total5m };
 }
