@@ -1,5 +1,5 @@
 import { requireAdmin } from '@/lib/admin/guards';
-import { getSigningKeys, exportJwks } from '@/lib/admin/keys';
+import { getSigningKeys, exportJwks, isSigningKeyProvisioned } from '@/lib/admin/keys';
 import { rotateSigningKeysAction, revokeSigningKeyAction } from '@/lib/admin/keys-actions';
 import { AuroraBackdrop } from '@/components/AuroraBackdrop';
 import { Icon } from '@/components/Icon';
@@ -19,6 +19,7 @@ export default async function KeysPage({
 }) {
   const admin = await requireAdmin();
   const [keys, jwks, params] = await Promise.all([getSigningKeys(), exportJwks(), searchParams]);
+  const provisioned = isSigningKeyProvisioned();
 
   const notice = readFlag(params, 'rotated')
     ? 'A new key is now active. The previous key stays published for 30 days so existing tokens still verify.'
@@ -58,13 +59,21 @@ export default async function KeysPage({
           <h2 id="keyring-heading" className="panel-title">
             Key Ring
           </h2>
-          <form action={rotateSigningKeysAction}>
-            <input type="hidden" name="confirm" value="rotate" />
-            <button type="submit" className="btn btn-primary">
-              <Icon name="rotate-cw" size={16} />
-              <span>Rotate signing keys</span>
-            </button>
-          </form>
+          {provisioned ? (
+            <p className="text-body text-meta">
+              Signing keys come from <code>OIDC_SIGNING_PRIVATE_KEY</code>, so they are shared by every
+              replica and cannot be rotated here. Update the secret and roll the deployment; the previous
+              key stays published for the grace window so outstanding tokens keep verifying.
+            </p>
+          ) : (
+            <form action={rotateSigningKeysAction}>
+              <input type="hidden" name="confirm" value="rotate" />
+              <button type="submit" className="btn btn-primary">
+                <Icon name="rotate-cw" size={16} />
+                <span>Rotate signing keys</span>
+              </button>
+            </form>
+          )}
         </div>
 
         {keys.length === 0 ? (

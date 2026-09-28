@@ -15,7 +15,7 @@
  * history. Redirect deliberately if your secret manager ingests a file.
  */
 
-import { randomBytes } from 'node:crypto';
+import { randomBytes, generateKeyPairSync } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 
 const args = process.argv.slice(2);
@@ -35,6 +35,23 @@ const namespace = valueOf('--namespace', 'lgu-portal');
 const idpIssuer = valueOf('--idp-issuer', '');
 const idpClientId = valueOf('--idp-client-id', '');
 const idpClientSecret = valueOf('--idp-client-secret', '');
+// src/lib/auth/users.ts reads this at module load and throws when it is unset,
+// so omitting it turned every route that touches the user directory into a 500.
+// Default to a random value nobody knows: the seeded demo accounts stay loaded
+// (the module needs the string) but are unguessable in production.
+const demoPassword = valueOf('--demo-password', generate());
+
+// The RS256 signing key. Every replica must sign with the same key, or
+// `GET /api/oidc/jwks` publishes whichever pod answers it and a client that
+// cached the set gets a `kid` it has never seen and rejects valid tokens.
+// Generated once here and mounted on all replicas; a restart no longer
+// invalidates outstanding tokens either.
+const signingKeyPem = valueOf(
+  '--signing-key',
+  generateKeyPairSync('rsa', { modulusLength: 2048, publicExponent: 0x10001 }).privateKey
+    .export({ type: 'pkcs8', format: 'pem' })
+    .toString(),
+);
 
 if (sessionSecret.length < 32) {
   console.error('Generated SESSION_SECRET is too short; refusing to emit.');
@@ -53,6 +70,9 @@ const lines = [
   `  SESSION_SECRET: "${sessionSecret}"`,
   `  OIDC_SIGNING_SECRET: "${oidcSigningSecret}"`,
   `  OIDC_ISSUER: "${issuer}"`,
+  `  DEMO_PASSWORD: "${demoPassword}"`,
+  // Escaped newlines: a secretKeyRef cannot carry a multi-line value.
+  `  OIDC_SIGNING_PRIVATE_KEY: "${signingKeyPem.trimEnd().replace(/\n/g, '\\n')}"`,
 ];
 
 if (idpIssuer) lines.push(`  IDP_ISSUER: "${idpIssuer}"`);

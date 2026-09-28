@@ -18,12 +18,13 @@
  * it changes the published `alg`, the JWKS contents, and the client
  * verification contract all at once.
  *
- * Durability is still in-process: a restart loses the keyring. Before this is
- * used to sign real tokens the keys must move to a KMS/HSM or be loaded from
- * mounted secrets, or every restart invalidates every outstanding token.
+ * Durability is still in-process unless `OIDC_SIGNING_PRIVATE_KEY` is set — see
+ * `provisionedKey()` below. With more than one replica that must be set, or
+ * every pod generates a different key and tokens stop verifying on the replica
+ * that answers the JWKS request.
  */
 
-import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'crypto';
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'crypto';
 import { randomToken, type JwtClaims } from '@/lib/auth/crypto';
 
 export type JwtHeader = { alg: string; typ: string; kid?: string };
@@ -48,15 +49,24 @@ export interface SigningKey {
 export type PublicSigningKey = Omit<SigningKey, 'privateKeyPem'>;
 
 const KEYS = Symbol('signingKeys');
+const INITIALIZED = Symbol('signingKeysInitialized');
 type KeyRegistry = {
   [KEYS]?: SigningKey[];
-  initialized?: boolean;
+  [INITIALIZED]?: boolean;
 };
 
 // Survives dev-server module reloads so HMR does not rotate the keyring.
+// Both the array and the init flag are symbol-scoped, and the flag is only ever
+// set alongside the array. A shared, fixed-name flag would let one module copy
+// mark the keyring initialised and leave another copy with an empty array — and
+// `getActiveKey()` would then throw "No active signing key" on that copy.
+// Next.js can hand out separate module copies to route handlers and server
+// actions, so this is reachable in a single process.
 const globalForKeys = globalThis as unknown as KeyRegistry;
-if (!globalForKeys[KEYS]) globalForKeys[KEYS] = [];
-if (globalForKeys.initialized === undefined) globalForKeys.initialized = false;
+if (!globalForKeys[KEYS]) {
+  globalForKeys[KEYS] = [];
+  globalForKeys[INITIALIZED] = false;
+}
 
 const keys = globalForKeys[KEYS]!;
 
@@ -64,6 +74,65 @@ const keys = globalForKeys[KEYS]!;
 const RETIREMENT_GRACE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MAX_KEYS = 5; // 1 active + 4 retired
 const MODULUS_LENGTH = 2048;
+
+/* ------------------------------------------------------------------ */
+/* Provisioned key material                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A private key supplied by the deployment instead of generated at boot.
+ *
+ * The keyring is held in a process-global array, so every replica that generates
+ * its own key ends up publishing a *different* JWKS. A client that caches
+ * `jwks_uri` and then has its next request served by another replica gets a
+ * `kid` it has never seen and rejects a perfectly valid signature. Setting this
+ * to the same PEM on every pod makes the whole deployment sign with one key.
+ *
+ * A PEM cannot be written with real newlines through a `secretKeyRef`, so both
+ * the raw multi-line form and the `\n`-escaped form are accepted.
+ */
+const PROVISIONED_PEM = process.env.OIDC_SIGNING_PRIVATE_KEY?.replace(/\\n/g, '\n').trim() || '';
+
+/** True when the active key came from the environment rather than this process. */
+export function isSigningKeyProvisioned(): boolean {
+  return PROVISIONED_PEM.length > 0;
+}
+
+/**
+ * A `kid` derived from the key itself, so every replica publishes the same one.
+ * A random `kid` would defeat the purpose: clients key their cache on `kid`, and
+ * two replicas publishing different ids for the same key look like two keys.
+ */
+function kidForPublicKey(publicKeyPem: string): string {
+  const der = createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' });
+  return `key_${createHash('sha256').update(der).digest('base64url').slice(0, 16)}`;
+}
+
+function provisionedKey(): SigningKey {
+  let privateKey: ReturnType<typeof createPrivateKey>;
+  try {
+    privateKey = createPrivateKey(PROVISIONED_PEM);
+  } catch (err) {
+    throw new Error(
+      'OIDC_SIGNING_PRIVATE_KEY is set but is not a parseable private key. ' +
+        'Mount the PEM from a secret and make sure newlines survived the env var.',
+      { cause: err },
+    );
+  }
+
+  const publicKeyPem = createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }).toString();
+
+  return {
+    kid: kidForPublicKey(publicKeyPem),
+    alg: 'RS256',
+    use: 'sig',
+    publicKeyPem,
+    privateKeyPem: PROVISIONED_PEM,
+    createdAt: Date.now(),
+    expiresAt: null,
+    active: true,
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /* Key generation                                                      */
@@ -85,24 +154,20 @@ function generateRsaKeyPair(): { publicKeyPem: string; privateKeyPem: string } {
 /* ------------------------------------------------------------------ */
 
 async function initializeKeys(): Promise<void> {
-  if (globalForKeys.initialized) return;
-  globalForKeys.initialized = true;
-  if (keys.length === 0) await rotateSigningKeys();
+  if (globalForKeys[INITIALIZED]) return;
+  globalForKeys[INITIALIZED] = true;
+  if (keys.length === 0) {
+    // Provisioned when set, so every replica signs with the same key. Otherwise
+    // generated, which is fine for a single process and wrong for several.
+    keys.unshift(isSigningKeyProvisioned() ? provisionedKey() : await generateAndBuildActiveKey());
+  }
 }
 
-/** Promote a new active key; the previous one is retired but still published. */
-export async function rotateSigningKeys(): Promise<PublicSigningKey> {
-  const now = Date.now();
-  for (const key of keys) {
-    if (key.active) {
-      key.active = false;
-      // Kept published during the grace window so existing tokens still verify.
-      key.expiresAt = now + RETIREMENT_GRACE_MS;
-    }
-  }
-
+/** Build a fresh key from newly generated material. */
+async function generateAndBuildActiveKey(): Promise<SigningKey> {
   const { publicKeyPem, privateKeyPem } = generateRsaKeyPair();
-  const key: SigningKey = {
+  const now = Date.now();
+  return {
     kid: `key_${now.toString(36)}_${randomToken(8)}`,
     alg: 'RS256',
     use: 'sig',
@@ -112,6 +177,34 @@ export async function rotateSigningKeys(): Promise<PublicSigningKey> {
     expiresAt: null,
     active: true,
   };
+}
+
+/**
+ * Promote a new active key; the previous one is retired but still published.
+ *
+ * Refuses when the active key is provisioned: the new key would exist only in
+ * this process, so this replica would sign with a key no other replica has and
+ * no client could verify. Rotation of a provisioned keyring means updating the
+ * secret and restarting, which keeps the old key published for the grace window.
+ */
+export async function rotateSigningKeys(): Promise<PublicSigningKey> {
+  if (isSigningKeyProvisioned()) {
+    throw new Error(
+      'Signing keys are provisioned via OIDC_SIGNING_PRIVATE_KEY, so they cannot be rotated in-process. ' +
+        'Update the secret and roll the deployment instead.',
+    );
+  }
+
+  const now = Date.now();
+  for (const key of keys) {
+    if (key.active) {
+      key.active = false;
+      // Kept published during the grace window so existing tokens still verify.
+      key.expiresAt = now + RETIREMENT_GRACE_MS;
+    }
+  }
+
+  const key = await generateAndBuildActiveKey();
 
   keys.unshift(key);
   if (keys.length > MAX_KEYS) keys.length = MAX_KEYS;
