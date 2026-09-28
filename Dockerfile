@@ -40,6 +40,10 @@ COPY --from=builder /app/tokens ./tokens
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/package.json ./package.json
 
+# The migration runner reads plain .sql from this path at boot. Without it the
+# entrypoint cannot migrate, and a failed migration now stops the pod.
+COPY --from=builder /app/src/lib/db/migrations ./src/lib/db/migrations
+
 # Make entrypoint executable
 RUN chmod +x /app/scripts/docker-entrypoint.sh
 

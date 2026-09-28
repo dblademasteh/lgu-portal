@@ -8,11 +8,36 @@
  *   node scripts/db-migrate.mjs
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Pool } from 'pg';
 
 const MIGRATIONS_DIR = join(process.cwd(), 'src', 'lib', 'db', 'migrations');
+
+/**
+ * Connect, retrying while the database is still coming up.
+ *
+ * Migrations are fatal now that the entrypoint does not swallow their exit
+ * code, so a database that is not accepting connections yet would crash-loop
+ * the pod. Bounded so a genuinely missing database still fails fast and lets
+ * Kubernetes restart the pod rather than hanging here forever.
+ */
+async function connectWithRetry(pool, attempts = 30, delayMs = 2000) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await pool.connect();
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts) break;
+      if (attempt === 1 || attempt % 5 === 0) {
+        console.log(`[db] not ready (${error.message}); retry ${attempt}/${attempts - 1}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError;
+}
 
 async function runMigrations() {
   const databaseUrl = process.env.DATABASE_URL;
@@ -21,15 +46,34 @@ async function runMigrations() {
     return;
   }
 
+  // A missing migrations directory used to surface as a bare ENOENT from
+  // readdirSync and, because the entrypoint ignored the exit code, the pod
+  // booted against an empty database and served the seeded demo directory.
+  // Name the actual cause so a bad image build is obvious.
+  if (!existsSync(MIGRATIONS_DIR)) {
+    console.error(
+      `[db] FATAL: migrations directory not found at ${MIGRATIONS_DIR}. ` +
+        'The image is missing src/lib/db/migrations -- check the Dockerfile COPY.',
+    );
+    process.exit(1);
+  }
+
   const pool = new Pool({
     connectionString: databaseUrl,
     max: 1,
     connectionTimeoutMillis: 5000,
   });
 
-  const client = await pool.connect();
+  const client = await connectWithRetry(pool);
   try {
     await client.query('BEGIN');
+
+    // The deployment runs more than one replica, and every pod runs migrations
+    // on boot. Without a lock two pods can both read `schema_migrations`, both
+    // decide the same file is unapplied, and the second INSERT hits the primary
+    // key and aborts. The advisory lock is transaction-scoped, so it is
+    // released by the COMMIT/ROLLBACK below and cannot be orphaned.
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext('lgu_portal_migrations'))`);
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
