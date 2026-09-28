@@ -549,6 +549,16 @@ export async function refreshAccessToken(
   if (record.clientId !== clientId) {
     return { ok: false, error: 'invalid_grant', description: 'Refresh token belongs to a different client.' };
   }
+  // Bind the grant to one identity. Without this, the token below mixed
+  // `sub` from the refresh-token record with roles/email/department/employee_id
+  // from whoever happened to hold the SSO session — so a token minted from any
+  // valid refresh token carried another user's privileges under a correctly
+  // signed RS256 signature, and downstream systems that authorise on `sub`
+  // would treat the caller as that other user. A refresh token is a bearer
+  // credential; it must not be redeemable by a different principal.
+  if (record.userId !== subject.userId) {
+    return { ok: false, error: 'invalid_grant', description: 'Refresh token belongs to a different user.' };
+  }
 
   // Rotate on every use: a replayed refresh token then fails loudly.
   await refreshTokens.delete(key);

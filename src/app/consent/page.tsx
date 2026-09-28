@@ -19,13 +19,7 @@ export const metadata: Metadata = {
   description: 'Review the permissions requested by the system.',
 };
 
-type SearchParams = Promise<{
-  client_id?: string | string[];
-  scope?: string | string[];
-  state?: string | string[];
-  redirect_uri?: string | string[];
-  error?: string | string[];
-}>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 export default async function ConsentPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
@@ -34,9 +28,19 @@ export default async function ConsentPage({ searchParams }: { searchParams: Sear
 
   const clientId = firstValue(params.client_id);
   const scope = firstValue(params.scope) ?? '';
-  const state = firstValue(params.state) ?? '';
   const redirectUri = firstValue(params.redirect_uri) ?? '';
   const error = firstValue(params.error);
+
+  // Reconstruct the exact query the authorize endpoint sent. The form replays
+  // this verbatim rather than re-serialising individual fields, because the
+  // set of fields authorize needs (response_type, the PKCE challenge, nonce) is
+  // larger than the set this page happens to display, and copying a subset is
+  // what previously broke the approve round-trip.
+  const request_ = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'error' || value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) request_.append(key, item);
+  }
 
   if (!clientId || !redirectUri) {
     return (
@@ -94,9 +98,9 @@ export default async function ConsentPage({ searchParams }: { searchParams: Sear
                 alignItems: 'baseline',
                 gap: '0.5rem',
                 padding: '0.75rem 1rem',
-                background: 'var(--semantic-glass-surface)',
+                background: 'var(--semantic-color-glass-fill)',
                 borderRadius: 'var(--primitive-radius-md)',
-                border: '1px solid var(--semantic-glass-border)',
+                border: '1px solid var(--semantic-color-glass-border)',
               }}>
                 <span className="mono" style={{
                   fontSize: 'var(--semantic-text-size-sm)',
@@ -105,7 +109,7 @@ export default async function ConsentPage({ searchParams }: { searchParams: Sear
                 }}>
                   {s}
                 </span>
-                <span style={{ fontSize: 'var(--semantic-text-size-sm)', color: 'var(--semantic-color-muted)' }}>
+                <span style={{ fontSize: 'var(--semantic-text-size-sm)', color: 'var(--semantic-color-muted-foreground)' }}>
                   {describeScope(s)}
                 </span>
               </li>
@@ -113,16 +117,13 @@ export default async function ConsentPage({ searchParams }: { searchParams: Sear
           </ul>
 
           <form method="POST" action="/api/oidc/consent" style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <input type="hidden" name="client_id" value={clientId} />
-            <input type="hidden" name="scope" value={scope} />
-            <input type="hidden" name="state" value={state} />
-            <input type="hidden" name="redirect_uri" value={redirectUri} />
+            <input type="hidden" name="request" value={request_.toString()} />
 
             <button type="submit" className="button button-primary button-block">
               Approve
             </button>
             <a
-              href={`/api/oidc/consent/deny?state=${encodeURIComponent(state)}&redirect_uri=${encodeURIComponent(redirectUri)}`}
+              href={`/api/oidc/consent/deny?request=${encodeURIComponent(request_.toString())}`}
               className="button button-ghost button-block"
               style={{ textAlign: 'center' }}
             >

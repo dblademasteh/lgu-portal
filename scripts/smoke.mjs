@@ -7,9 +7,45 @@
  * audience confusion) live in the wiring between endpoints, not in any one unit.
  *
  * Usage: node scripts/smoke.mjs [baseUrl]
+ *
+ * The server must be started with a HOSTNAME that matches OIDC_ISSUER, e.g.
+ *   OIDC_ISSUER=http://localhost:3000 HOSTNAME=localhost npm start
+ * See the preflight below for why.
  */
 
 const BASE = process.argv[2] ?? 'http://localhost:3000';
+
+// The demo accounts all share DEMO_PASSWORD. Read it from the environment
+// rather than hardcoding it, so the suite works against whatever value the
+// server was actually started with — and so a real password never has to be
+// committed to the repo to keep CI green.
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? 'Lgu@Portal2026';
+
+// The account this suite signs in as. Its employee_id is what proves claims
+// actually crossed the token boundary to the downstream app.
+const SIGNIN_EMPLOYEE_ID = 'LGU-2021-0933';
+
+// The registered redirect_uri is built server-side from OIDC_ISSUER, not from
+// where this script happens to connect. Read the issuer off the discovery
+// document so the hardening checks below construct requests that are valid
+// against whatever the server is actually configured with — hardcoding
+// `localhost:3000` silently turned every redirect_uri check into a no-op on any
+// other issuer.
+const discoveryDoc = await (await fetch(`${BASE}/.well-known/openid-configuration`)).json();
+const ISSUER = discoveryDoc.issuer;
+const CALLBACK = `${ISSUER}/api/oidc/callback`;
+
+// If the server is configured with a non-local issuer, the authorize redirects
+// below point at a host that does not resolve from here, and the failure looks
+// like a DNS bug rather than a misconfiguration. Say so explicitly.
+if (!ISSUER.includes('localhost') && !ISSUER.includes('127.0.0.1')) {
+  console.error(
+    `\n  Server advertises issuer ${ISSUER}, which is not local.\n` +
+    `  OIDC_ISSUER must be a local address for this suite (it follows the\n` +
+    `  authorize redirect). Set OIDC_ISSUER=http://localhost:3000 and retry.\n`,
+  );
+  process.exit(1);
+}
 
 let passed = 0;
 let failed = 0;
@@ -67,15 +103,23 @@ class Jar {
 const jar = new Jar();
 
 /** GET that follows one redirect manually so each hop can be inspected. */
-async function hop(url, { follow = false, method = 'GET', body } = {}) {
+async function hop(url, { follow = false, method = 'GET', body, form } = {}) {
+  // A null URL here used to throw a bare TypeError that aborted the whole
+  // suite, so one failed check hid every check after it. Fail loudly instead.
+  if (typeof url !== 'string' || url.length === 0) {
+    throw new Error(`hop() called with ${url === null ? 'null' : JSON.stringify(url)}: no redirect location to follow`);
+  }
   const response = await fetch(url.startsWith('http') ? url : `${BASE}${url}`, {
     method,
     redirect: 'manual',
     headers: {
       cookie: jar.header(),
       ...(body ? { 'content-type': 'application/json' } : {}),
+      // Forms submit as urlencoded, not JSON. Driving the real consent form
+      // means sending the same content-type a browser would.
+      ...(form ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
     },
-    body,
+    body: body ?? form,
   });
   jar.absorb(response);
   if (follow && response.status >= 300 && response.status < 400) {
@@ -83,6 +127,17 @@ async function hop(url, { follow = false, method = 'GET', body } = {}) {
     if (location) return hop(location, { follow: true });
   }
   return response;
+}
+
+/** Hidden form values arrive HTML-escaped; decode before re-posting them. */
+function decodeHtmlEntities(value) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;|&#39;/g, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
 }
 
 /* ------------------------------------------------------------------ */
@@ -123,7 +178,7 @@ section('Credential rejection');
 
   const locked = await hop('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'locked', password: 'Lgu@Portal2026' }),
+    body: JSON.stringify({ username: 'locked', password: DEMO_PASSWORD }),
   });
   const lockedBody = await locked.json();
   check('locked account reports a distinct state', lockedBody.status === 'locked', lockedBody.status);
@@ -141,7 +196,7 @@ section('MFA challenge (regression: must not wedge the server)');
   // wrong path and this guard stopped testing anything.
   const mfa = await hop('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'r.santos', password: 'Lgu@Portal2026' }),
+    body: JSON.stringify({ username: 'r.santos', password: DEMO_PASSWORD }),
   });
   check('MFA account gets a challenge, not a hang', mfa.status === 200, `got ${mfa.status}`);
   const mfaBody = await mfa.json();
@@ -164,7 +219,7 @@ section('Successful sign-in (no MFA)');
 {
   const login = await hop('/api/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ username: 'j.delacruz', password: 'Lgu@Portal2026' }),
+    body: JSON.stringify({ username: 'j.delacruz', password: DEMO_PASSWORD }),
   });
   const body = await login.json();
   check('valid credentials authenticate', body.status === 'authenticated', JSON.stringify(body));
@@ -203,6 +258,32 @@ section('Tampered session cookie');
   jar.set('lgu_sso_session', original);
 }
 
+// The callback rebuilds its redirect_uri from `request.url`, which under
+// `next start` is the host the server was told to bind to (HOSTNAME), not the
+// Host header that was actually used to reach it. If that bind host differs
+// from ISSUER, the code is issued against one redirect_uri and redeemed against
+// another and the callback dies with `invalid_grant` — which reads like a token
+// bug rather than a misconfigured test server.
+//
+// The authorize redirect echoes its own idea of the origin back in `iss`, so
+// probe that first and explain the failure instead of letting it surface as an
+// opaque grant error twenty assertions later.
+{
+  // Carries state/nonce so the request reaches the happy path and actually
+  // emits `iss`; without them it errors out first and the probe learns nothing.
+  const probe = await hop(`/api/oidc/authorize?client_id=lgu-hris&redirect_uri=${encodeURIComponent(CALLBACK)}&response_type=code&scope=openid&code_challenge=abcdefghijklmnopqrstuvwxyz1234567890abcdefgh&code_challenge_method=S256&state=preflight&nonce=preflight&consent=approved`);
+  const seen = new URL(probe.headers.get('location') ?? BASE, BASE).searchParams.get('iss');
+  if (seen && seen !== ISSUER) {
+    console.error(
+      `\n  Server binds as ${seen} but OIDC_ISSUER is ${ISSUER}.\n` +
+      `  The callback rebuilds redirect_uri from the bind host, so the flow\n` +
+      `  cannot complete. Start the server with:\n` +
+      `      HOSTNAME=${new URL(ISSUER).hostname} npm start\n`,
+    );
+    process.exit(1);
+  }
+}
+
 section('Authorization code + PKCE flow');
 let code = null;
 let launchUrl = null;
@@ -219,24 +300,86 @@ let launchUrl = null;
   check('authorize request carries a PKCE challenge', params.get('code_challenge_method') === 'S256');
   check('authorize request carries state', Boolean(params.get('state')));
 
-  const authorized = await hop(launchUrl);
-  check('authorize endpoint redirects', authorized.status === 302, `got ${authorized.status}`);
+  // Consent is a real step in this flow, not a formality: authorize redirects
+  // to /consent unless the request already carries consent=approved. Assert the
+  // gate holds, then actually POST the consent form the way the browser does.
+  //
+  // It is tempting to skip the form and re-request the original launch URL with
+  // consent=approved appended. That is what this suite used to do, and it hid a
+  // fatal bug: the real approve path rebuilt the authorize URL from four
+  // hand-copied fields and dropped response_type and the PKCE challenge, so
+  // every genuine first login failed while the suite stayed green. The form has
+  // to be driven for real or this check proves nothing.
+  const consentGate = await hop(launchUrl);
+  const consentLocation = consentGate.headers.get('location') ?? '';
+  check('authorize withholds the code until consent is granted',
+    (consentGate.status === 302 || consentGate.status === 307) && consentLocation.includes('/consent'),
+    consentLocation || 'no location');
+  check('no authorization code leaks before consent',
+    !new URL(consentLocation || BASE, BASE).searchParams.has('code'));
 
-  const callbackUrl = new URL(authorized.headers.get('location'), BASE);
-  code = callbackUrl.searchParams.get('code');
-  check('authorization code issued', Boolean(code));
-  check('state echoed back', callbackUrl.searchParams.get('state') === params.get('state'));
+  // The consent screen must render and carry the authorize request forward.
+  const consentPage = await hop(consentLocation);
+  const consentHtml = await consentPage.text();
+  check('consent screen renders', consentPage.status === 200, `got ${consentPage.status}`);
+  check('consent form replays the authorize request', /name="request" value="[^"]+"/.test(consentHtml));
 
-  const landed = await hop(callbackUrl.toString());
-  check('callback redirects to the downstream app',
-    (landed.headers.get('location') ?? '').includes('/launch/hris/app'),
-    landed.headers.get('location') ?? 'none');
+  const replay = consentHtml.match(/name="request" value="([^"]*)"/)?.[1];
+  if (!replay) {
+    check('authorization code issued', false, 'consent form carried no request field');
+    check('callback redirects to the downstream app', false, 'skipped, no replay');
+    check('downstream app renders', false, 'skipped, no replay');
+    check('claims reached the downstream app', false, 'skipped, no replay');
+    check('granted scopes are shown', false, 'skipped, no replay');
+  } else {
+    const approved = await hop('/api/oidc/consent', {
+      method: 'POST',
+      form: new URLSearchParams({ request: decodeHtmlEntities(replay) }).toString(),
+    });
+    check('consent approval redirects back to authorize',
+      (approved.headers.get('location') ?? '').includes('/api/oidc/authorize'),
+      approved.headers.get('location') ?? 'no location');
 
-  const app = await hop(landed.headers.get('location'));
-  check('downstream app renders', app.status === 200, `got ${app.status}`);
-  const appHtml = await app.text();
-  check('claims reached the downstream app', appHtml.includes('LGU-2021-0933'));
-  check('granted scopes are shown', appHtml.includes('profile:read'));
+    const authorized = await hop(approved.headers.get('location') ?? BASE);
+    check('authorize endpoint redirects once consent is granted', authorized.status === 302, `got ${authorized.status}`);
+
+    const callbackLocation = authorized.headers.get('location');
+    if (!callbackLocation) {
+      check('authorization code issued', false, 'no redirect location');
+      check('callback redirects to the downstream app', false, 'no redirect location');
+      check('downstream app renders', false, 'skipped, no callback');
+      check('claims reached the downstream app', false, 'skipped, no callback');
+      check('granted scopes are shown', false, 'skipped, no callback');
+    } else {
+      const callbackUrl = new URL(callbackLocation, BASE);
+      code = callbackUrl.searchParams.get('code');
+      check('authorization code issued', Boolean(code));
+      check('state echoed back', callbackUrl.searchParams.get('state') === params.get('state'));
+
+      const landed = await hop(callbackUrl.toString());
+      const appLocation = landed.headers.get('location');
+      // An `invalid_grant` here is almost always the bind-host mismatch the
+      // preflight guards against, so name the cause rather than the symptom.
+      const hint = (appLocation ?? '').includes('invalid_grant')
+        ? `invalid_grant — server binds as ${callbackUrl.searchParams.get('iss') ?? '?'}, ` +
+          `OIDC_ISSUER is ${ISSUER}; start with HOSTNAME=${new URL(ISSUER).hostname}`
+        : appLocation ?? 'none';
+      check('callback redirects to the downstream app',
+        (appLocation ?? '').includes('/launch/hris/app'), hint);
+
+      if (!appLocation) {
+        check('downstream app renders', false, 'skipped, no app redirect');
+        check('claims reached the downstream app', false, 'skipped, no app redirect');
+        check('granted scopes are shown', false, 'skipped, no app redirect');
+      } else {
+        const app = await hop(appLocation);
+        check('downstream app renders', app.status === 200, `got ${app.status}`);
+        const appHtml = await app.text();
+        check('claims reached the downstream app', appHtml.includes(SIGNIN_EMPLOYEE_ID));
+        check('granted scopes are shown', appHtml.includes('profile:read'));
+      }
+    }
+  }
 }
 
 section('Authorization code replay');
@@ -252,6 +395,38 @@ section('Authorization code replay');
   }
 }
 
+section('Consent denial');
+{
+  // A different client, because consent for lgu-hrms was just granted above and
+  // would short-circuit the screen. `gis` is one of the systems this account
+  // can actually launch. Denial used to come back as
+  // error=unsupported_response_type for the same reason approval did: the
+  // handler rebuilt the authorize request from a partial field set.
+  //
+  // Two hops: /launch redirects to /api/oidc/authorize, and only authorize
+  // decides whether the consent screen is required.
+  const launch = await hop('/launch/gis');
+  const authorize = await hop(launch.headers.get('location') ?? BASE);
+  const consentLocation = authorize.headers.get('location') ?? '';
+  if (!consentLocation.includes('/consent')) {
+    check('denial path is reachable', false, `expected /consent, got ${consentLocation || 'none'}`);
+  } else {
+    const page = await hop(consentLocation);
+    const html = await page.text();
+    const request = html.match(/href="\/api\/oidc\/consent\/deny\?request=([^"]+)"/)?.[1];
+    check('consent screen offers a deny path', Boolean(request));
+
+    if (request) {
+      const denied = await hop(`/api/oidc/consent/deny?request=${decodeHtmlEntities(request)}`);
+      const back = await hop(denied.headers.get('location') ?? BASE);
+      const final = back.headers.get('location') ?? '';
+      check('denial reaches the client as access_denied', final.includes('error=access_denied'), final);
+      check('denial is not mistaken for a protocol error', !final.includes('unsupported_response_type'), final);
+      check('no code is issued on denial', !new URL(final, BASE).searchParams.has('code'));
+    }
+  }
+}
+
 section('Authorization endpoint hardening');
 {
   const badRedirect = await hop(
@@ -264,13 +439,13 @@ section('Authorization endpoint hardening');
   // A well-formed challenge with a downgraded method, so this can only pass
   // because `plain` is rejected — not because the challenge was malformed.
   const plainPkce = await hop(
-    '/api/oidc/authorize?client_id=lgu-hris&redirect_uri=http://localhost:3000/api/oidc/callback&response_type=code&scope=openid&code_challenge=abcdefghijklmnopqrstuvwxyz1234567890abcdefgh&code_challenge_method=plain',
+    `/api/oidc/authorize?client_id=lgu-hris&redirect_uri=${encodeURIComponent(CALLBACK)}&response_type=code&scope=openid&code_challenge=abcdefghijklmnopqrstuvwxyz1234567890abcdefgh&code_challenge_method=plain`,
   );
   const location = plainPkce.headers.get('location') ?? '';
   check('PKCE method downgrade to plain is refused', location.includes('error=invalid_request'), location);
 
   const noPkce = await hop(
-    '/api/oidc/authorize?client_id=lgu-hris&redirect_uri=http://localhost:3000/api/oidc/callback&response_type=code&scope=openid',
+    `/api/oidc/authorize?client_id=lgu-hris&redirect_uri=${encodeURIComponent(CALLBACK)}&response_type=code&scope=openid`,
   );
   check('public client without PKCE is refused',
     (noPkce.headers.get('location') ?? '').includes('error=invalid_request'),
@@ -280,7 +455,7 @@ section('Authorization endpoint hardening');
   // check rejects the request first and this would never exercise the scope
   // check at all.
   const badScope = await hop(
-    '/api/oidc/authorize?client_id=lgu-hris&redirect_uri=http://localhost:3000/api/oidc/callback&response_type=code&scope=openid%20admin:everything&code_challenge=abcdefghijklmnopqrstuvwxyz1234567890abcdefgh&code_challenge_method=S256',
+    `/api/oidc/authorize?client_id=lgu-hris&redirect_uri=${encodeURIComponent(CALLBACK)}&response_type=code&scope=openid%20admin:everything&code_challenge=abcdefghijklmnopqrstuvwxyz1234567890abcdefgh&code_challenge_method=S256`,
   );
   check('unregistered scope is refused', (badScope.headers.get('location') ?? '').includes('error=invalid_scope'),
     badScope.headers.get('location') ?? 'none');
@@ -295,7 +470,7 @@ section('Role-based access control');
   check('restricted launch explains itself', target.includes('unauthorized'), target);
 
   const authorizeDirect = await hop(
-    '/api/oidc/authorize?client_id=lgu-iam&redirect_uri=http://localhost:3000/api/oidc/callback&response_type=code&scope=openid%20role:read&code_challenge=abcdefghijklmnopqrstuvwxyz1234567890abcdefgh&code_challenge_method=S256&state=s1',
+    `/api/oidc/authorize?client_id=lgu-iam&redirect_uri=${encodeURIComponent(CALLBACK)}&response_type=code&scope=openid%20role:read&code_challenge=abcdefghijklmnopqrstuvwxyz1234567890abcdefgh&code_challenge_method=S256&state=s1`,
   );
   const authorizeLocation = authorizeDirect.headers.get('location') ?? '';
   check('direct authorize call is also refused', authorizeLocation.includes('error=access_denied'), authorizeLocation);
@@ -307,7 +482,15 @@ section('Discovery and JWKS');
   const disco = await discovery.json();
   check('discovery document served', discovery.status === 200);
   check('advertises S256 PKCE only', disco.code_challenge_methods_supported?.includes('S256'));
-  check('advertises RS-free HS256 stub honestly', disco.id_token_signing_alg_values_supported?.includes('HS256'));
+  // Was an assertion that RS256 was NOT offered, written while signing was still
+  // HS256. The server now signs RS256 against its key ring (src/lib/oidc.ts),
+  // so the old check passed only against a downgrade.
+  check('advertises RS256 for id_token signing',
+    disco.id_token_signing_alg_values_supported?.includes('RS256'),
+    JSON.stringify(disco.id_token_signing_alg_values_supported));
+  check('no longer advertises the symmetric HS256 downgrade',
+    !disco.id_token_signing_alg_values_supported?.includes('HS256'),
+    JSON.stringify(disco.id_token_signing_alg_values_supported));
 
   const jwks = await hop('/api/oidc/jwks');
   const keys = await jwks.json();
@@ -353,7 +536,7 @@ section('Open redirect protection');
   for (const [label, next] of hostile) {
     const response = await hop(`/api/auth/login?next=${encodeURIComponent(next)}`, {
       method: 'POST',
-      body: JSON.stringify({ username: 'j.delacruz', password: 'Lgu@Portal2026' }),
+      body: JSON.stringify({ username: 'j.delacruz', password: DEMO_PASSWORD }),
     });
     const { redirectTo } = await response.json();
 
@@ -373,7 +556,7 @@ section('Open redirect protection');
   // A legitimate deep link must survive intact, or the protection is useless.
   const okNext = await hop('/api/auth/login?next=%2Faccount', {
     method: 'POST',
-    body: JSON.stringify({ username: 'j.delacruz', password: 'Lgu@Portal2026' }),
+    body: JSON.stringify({ username: 'j.delacruz', password: DEMO_PASSWORD }),
   });
   check('a legitimate relative next is preserved', (await okNext.json()).redirectTo === '/account');
 

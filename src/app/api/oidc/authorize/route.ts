@@ -19,6 +19,7 @@ import { findUserById } from '@/lib/auth/users';
 import { record } from '@/lib/auth/audit';
 import { check } from '@/lib/auth/rate-limit';
 import { hasConsent } from '@/lib/auth/consent';
+import { serializeConsentRequest } from '@/lib/auth/consent-replay';
 import {
   issueAuthorizationCode,
   validateAuthorizeRequest,
@@ -119,11 +120,16 @@ export async function GET(request: NextRequest) {
   if (consentStatus !== 'approved') {
     const scopes = scope.split(/\s+/).filter(Boolean);
     if (!hasConsent(user.id, client.clientId, scopes)) {
+      // Carry the entire original request, not a hand-picked subset. The approve
+      // round-trip used to rebuild the authorize URL from client_id/scope/state/
+      // redirect_uri alone, silently dropping response_type, code_challenge,
+      // code_challenge_method and nonce — so `validateAuthorizeRequest` rejected
+      // every approval and no user could ever complete a first login. Replaying
+      // the request verbatim cannot drop a field. It is safe to replay because
+      // the authorize endpoint re-validates the whole thing from scratch,
+      // including an exact match against the registered redirect_uri.
       const consentUrl = new URL('/consent', request.url);
-      consentUrl.searchParams.set('client_id', client.clientId);
-      consentUrl.searchParams.set('scope', scope);
-      if (state) consentUrl.searchParams.set('state', state);
-      consentUrl.searchParams.set('redirect_uri', redirectUri);
+      consentUrl.search = serializeConsentRequest(params);
       return NextResponse.redirect(consentUrl, {
         status: 302,
         headers: { 'Cache-Control': 'no-store' },
