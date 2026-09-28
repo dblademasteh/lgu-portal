@@ -2,9 +2,11 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    # `master` is the default branch on this remote. `main`/`develop` are kept so
+    # the staging pipeline keeps working if the repo is ever renamed.
+    branches: [master, main, develop]
   pull_request:
-    branches: [main]
+    branches: [master, main]
 
 env:
   REGISTRY: ghcr.io
@@ -12,7 +14,7 @@ env:
 
 jobs:
   verify:
-    name: Typecheck, Tokens, Build & Smoke
+    name: Typecheck, Test, Tokens, Build & Smoke
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -27,8 +29,24 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # .env.production is no longer committed — it held a real demo password.
+      # CI generates throwaway values instead. These exist only to get the build
+      # and smoke suite through; nothing here is a credential worth keeping.
+      - name: Provision ephemeral build env
+        run: |
+          cat > .env.production <<EOF
+          SESSION_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")
+          OIDC_SIGNING_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))")
+          OIDC_ISSUER=http://localhost:3000
+          DEMO_PASSWORD=ci-smoke-password
+          EOF
+          echo "::add-mask::ci-smoke-password"
+
       - name: Type check
         run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:run
 
       - name: Token validation
         run: npm run tokens:validate -- --strict
@@ -36,10 +54,18 @@ jobs:
       - name: Build
         run: npm run build
 
-      # No lint or unit-test step: this repo has neither configured. `npm run
-      # verify` is typecheck + token validation + smoke, and the smoke suite is
-      # a real end-to-end walk of the OIDC flow, not a placeholder.
+      # `npm run verify` is typecheck + token validation + smoke, and the smoke
+      # suite is a real end-to-end walk of the OIDC flow, not a placeholder.
+      # It complements rather than replaces the Vitest unit suite above: smoke
+      # needs a booted server and cannot assert on internal behaviour.
       - name: Smoke test
+        env:
+          # Must match what the server was started with; smoke.mjs reads it so
+          # the suite never has to hardcode a password.
+          DEMO_PASSWORD: ci-smoke-password
+          # The callback rebuilds redirect_uri from the bind host, so this has
+          # to agree with OIDC_ISSUER above or every code exchange 400s.
+          HOSTNAME: localhost
         run: |
           npm start &
           SERVER_PID=$!
@@ -177,7 +203,7 @@ jobs:
     needs: docker
     if: >-
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
       vars.DEPLOY_PROD_ENABLED == 'true'
     runs-on: ubuntu-latest
     environment: production
