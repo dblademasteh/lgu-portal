@@ -51,3 +51,35 @@ export async function closePool(): Promise<void> {
     pool = null;
   }
 }
+
+/**
+ * Liveness-of-the-database probe for the readiness endpoint.
+ *
+ * Deliberately runs `SELECT 1` instead of reporting whether a pool object
+ * exists: `getPool()` happily returns a pool whose socket has already died, so
+ * "a pool is configured" says nothing about whether queries still work. The
+ * query is bounded by `statement_timeout` so a half-open connection cannot hang
+ * the probe until the kubelet kills the pod.
+ */
+export async function dbProbe(): Promise<{
+  configured: boolean;
+  ok: boolean;
+  message: string;
+}> {
+  if (!process.env.DATABASE_URL) {
+    return { configured: false, ok: false, message: 'DATABASE_URL is not set' };
+  }
+  try {
+    const p = await getPool();
+    if (!p) return { configured: true, ok: false, message: 'No pool available' };
+    await p.query("SET LOCAL statement_timeout = '2000ms'");
+    await p.query('SELECT 1');
+    return { configured: true, ok: true, message: 'reachable' };
+  } catch (error) {
+    return {
+      configured: true,
+      ok: false,
+      message: error instanceof Error ? error.message : 'Database error',
+    };
+  }
+}

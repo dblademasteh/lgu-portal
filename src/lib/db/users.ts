@@ -44,23 +44,48 @@ export type DbUser = {
   updatedAt: Date;
 };
 
+/**
+ * Cached result of the last probe.
+ *
+ * Re-probed on a short TTL rather than cached forever. A permanent cache would
+ * mean one transient blip switched the process to the demo directory for the
+ * rest of its life, which is exactly the failure mode this guards against.
+ */
+const DB_PROBE_TTL_MS = 5_000;
 let dbAvailable: boolean | null = null;
+let dbProbedAt = 0;
 
 async function isDbAvailable(): Promise<boolean> {
-  if (dbAvailable !== null) return dbAvailable;
-  try {
-    const pool = await import('./client').then((m) => m.getPool());
-    if (!pool) {
-      dbAvailable = false;
-      return false;
-    }
-    await pool.query('SELECT 1');
-    dbAvailable = true;
-    return true;
-  } catch {
-    dbAvailable = false;
-    return false;
-  }
+  if (dbAvailable !== null && Date.now() - dbProbedAt < DB_PROBE_TTL_MS) return dbAvailable;
+  const probe = await import('./client').then((m) => m.dbProbe());
+  dbAvailable = probe.ok;
+  dbProbedAt = Date.now();
+  return dbAvailable;
+}
+
+/**
+ * True when the database can be used, and throws when it is configured but
+ * broken.
+ *
+ * Callers treat a `null` return from the `*Db` helpers as "not found" and then
+ * fall back to the seeded demo directory. That is correct when no database is
+ * configured — that is the local/CI mode the demo directory exists for — but
+ * wrong when `DATABASE_URL` is set and the database is merely unreachable. In
+ * that case every lookup would miss, every login would silently be answered from
+ * the seed, and anyone who knows the shared demo password would be an admin.
+ *
+ * So the distinction that matters is "no database configured" versus "database
+ * configured and down", and only the second one throws. `verify-deploy.mjs`
+ * refuses to deploy without `DATABASE_URL`, so in the cluster this always throws
+ * rather than falling back.
+ */
+async function requireUsableDb(): Promise<boolean> {
+  if (await isDbAvailable()) return true;
+  if (!process.env.DATABASE_URL) return false;
+  throw new Error(
+    'User directory unavailable: DATABASE_URL is configured but the database is unreachable. ' +
+      'Refusing to serve the demo directory while a real database is expected.',
+  );
 }
 
 function rowToDbUser(row: Record<string, unknown>): DbUser {
@@ -90,7 +115,7 @@ function rowToDbUser(row: Record<string, unknown>): DbUser {
 export async function findUserByUsernameDb(
   username: string,
 ): Promise<{ user: DbUser; disabled: boolean } | null> {
-  const available = await isDbAvailable();
+  const available = await requireUsableDb();
   if (!available) return null;
 
   try {
@@ -108,7 +133,7 @@ export async function findUserByUsernameDb(
 }
 
 export async function findUserByIdDb(id: string): Promise<DbUser | null> {
-  const available = await isDbAvailable();
+  const available = await requireUsableDb();
   if (!available) return null;
 
   try {
@@ -122,7 +147,7 @@ export async function findUserByIdDb(id: string): Promise<DbUser | null> {
 }
 
 export async function listUsersDb(): Promise<DirectoryUser[]> {
-  const available = await isDbAvailable();
+  const available = await requireUsableDb();
   if (!available) return [];
 
   try {
@@ -156,7 +181,7 @@ export async function authenticateDb(
   username: string,
   password: string,
 ): Promise<{ user: DbUser; disabled: boolean } | null> {
-  const available = await isDbAvailable();
+  const available = await requireUsableDb();
   if (!available) return null;
 
   try {
@@ -208,7 +233,7 @@ function userHashParams(): string {
 }
 
 export async function unlockUserAccountDb(userId: string): Promise<void> {
-  const available = await isDbAvailable();
+  const available = await requireUsableDb();
   if (!available) return;
 
   try {
@@ -230,7 +255,7 @@ export async function updateUserRecordDb(
     passwordHash?: string;
   },
 ): Promise<void> {
-  const available = await isDbAvailable();
+  const available = await requireUsableDb();
   if (!available) return;
 
   try {
@@ -288,7 +313,7 @@ export async function syncIdPUserDb(userinfo: {
   preferredUsername?: string;
   roles?: string[];
 }): Promise<DbUser> {
-  const available = await isDbAvailable();
+  const available = await requireUsableDb();
   if (!available) {
     throw new Error('Database not available');
   }
