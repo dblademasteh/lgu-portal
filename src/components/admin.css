@@ -209,7 +209,7 @@
   position: absolute;
   inset-block: 0;
   inset-inline-start: 0;
-  width: 3px;
+  width: var(--component-metric-rail-width);
   border-radius: var(--semantic-radius-md) 0 0 var(--semantic-radius-md);
   background-color: transparent;
   transition: background-color var(--semantic-motion-duration-normal) var(--semantic-motion-ease-standard);
@@ -271,7 +271,7 @@
   position: absolute;
   inset-block: 0;
   inset-inline-start: 0;
-  width: 3px;
+  width: var(--component-metric-rail-width);
   border-radius: var(--semantic-radius-lg) 0 0 var(--semantic-radius-lg);
   background-color: transparent;
   transition: background-color var(--semantic-motion-duration-normal) var(--semantic-motion-ease-standard);

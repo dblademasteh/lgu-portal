@@ -112,9 +112,9 @@
   top: 0;
   z-index: var(--semantic-z-sticky);
   height: 3.5rem;
-  background-color: #080C18;
-  border-bottom: 1px solid hsl(160 84% 53% / 0.12);
-  box-shadow: 0 1px 0 0 hsl(0 0% 0% / 0.3), 0 4px 16px -4px hsl(0 0% 0% / 0.4);
+  background-color: var(--component-appbar-background);
+  border-bottom: 1px solid var(--component-appbar-border-bottom);
+  box-shadow: var(--component-appbar-shadow);
 }
 
 .portal-appbar .nav-inner {
@@ -143,7 +143,7 @@
 }
 
 .portal-brand-accent {
-  color: #00E5A0;
+  color: var(--component-nav-brand-accent);
 }
 
 /* Nav links — underline indicator, no background pill */
@@ -151,7 +151,7 @@
 .nav-links {
   display: flex;
   align-items: center;
-  gap: var(--semantic-space-gap-xs);
+  gap: var(--semantic-space-gap-sm);
   margin-inline-end: auto;
 }
 
@@ -176,7 +176,7 @@
   inset-inline: var(--primitive-space-3);
   bottom: 0;
   height: 2px;
-  background-color: #00E5A0;
+  background-color: var(--component-nav-brand-accent);
   border-radius: 2px;
   transform: scaleX(0);
   transition: transform var(--semantic-motion-duration-normal) var(--semantic-motion-ease-standard);
@@ -214,14 +214,14 @@
   gap: var(--semantic-space-gap-sm);
   padding-block: var(--primitive-space-1);
   padding-inline: var(--primitive-space-2) var(--semantic-space-gap-md);
-  border-left: 2px solid hsl(var(--user-hue, 239) 84% 67%);
+  border-left: 2px solid var(--component-avatar-hue);
   border-radius: 0;
   text-decoration: none;
   transition: background-color var(--semantic-motion-duration-fast) var(--semantic-motion-ease-standard);
 }
 
 .user-chip:hover {
-  background-color: hsl(228 34% 20% / 0.5);
+  background-color: var(--component-user-chip-hover-bg);
 }
 
 .user-chip-text {
@@ -264,7 +264,7 @@
 
 .signout-button:hover {
   color: var(--semantic-color-danger-foreground);
-  background-color: hsl(0 72% 60% / 0.12);
+  background-color: var(--component-sign-out-button-hover-bg);
 }
 
 .signout-button:focus-visible {

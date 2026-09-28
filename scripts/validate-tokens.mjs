@@ -25,8 +25,17 @@ const STRICT = process.argv.includes('--strict');
 const IGNORED_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build']);
 const SCAN_EXTENSIONS = new Set(['.css', '.tsx', '.ts', '.jsx', '.js']);
 
-/** Generated token layer — raw values are its entire purpose. */
-const EXEMPT_FILES = new Set(['src/app/tokens.css']);
+/**
+ * Files exempt from the hardcoded-value scan.
+ *
+ * `src/app/tokens.css` is the generated token layer — raw values are its entire
+ * purpose.
+ *
+ * `src/lib/email.ts` builds HTML email. Most mail clients strip CSS custom
+ * properties, so `var(--token)` there renders unstyled. Literal values are the
+ * correct choice for email, not a debt to be tokenised away.
+ */
+const EXEMPT_FILES = new Set(['src/app/tokens.css', 'src/lib/email.ts']);
 
 /**
  * Layout lengths that are not design decisions.

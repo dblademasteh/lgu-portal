@@ -71,7 +71,7 @@
   border-radius: var(--semantic-radius-lg);
   background-color: var(--semantic-color-surface);
   border: 1px solid var(--semantic-color-border-subtle);
-  border-left: 3px solid #00E5A0;
+  border-left: var(--primitive-border-width-thick) solid var(--component-auth-card-accent-edge);
   box-shadow: var(--semantic-elevation-md);
   position: relative;
 }

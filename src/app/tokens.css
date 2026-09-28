@@ -55,6 +55,7 @@
   --primitive-color-sky-400: #38BDF8;
   --primitive-color-sky-500: #0EA5E9;
   --primitive-color-current: currentColor;
+  --primitive-color-brand-500: #00E5A0;
   --primitive-space-0: 0;
   --primitive-space-1: 0.25rem;
   --primitive-space-2: 0.5rem;
@@ -144,6 +145,7 @@
   --primitive-opacity-72: 0.72;
   --primitive-opacity-88: 0.88;
   --primitive-opacity-100: 1;
+  --primitive-border-width-thick: 3px;
 }
 
 /* === SEMANTIC === */
@@ -187,6 +189,8 @@
   --semantic-color-aurora-1: hsl(239 84% 58% / 0.5);
   --semantic-color-aurora-2: hsl(188 86% 52% / 0.38);
   --semantic-color-aurora-3: hsl(262 84% 62% / 0.4);
+  --semantic-color-brand: #00E5A0;
+  --semantic-color-brand-muted: hsl(160 84% 53% / 0.12);
   --semantic-glass-blur: 28px;
   --semantic-glass-blur-strong: 48px;
   --semantic-glass-blur-subtle: 16px;
@@ -487,6 +491,7 @@
   --component-auth-card-shadow: 0 32px 80px -24px hsl(230 40% 2% / 0.75);
   --component-auth-card-blur: 48px;
   --component-auth-card-max-width: 27rem;
+  --component-auth-card-accent-edge: #00E5A0;
   --component-tile-accent: #22D3EE;
   --component-tile-accent-wash: hsl(228 40% 16% / 0.55);
   --component-tile-accent-edge: hsl(226 60% 80% / 0.16);
@@ -537,6 +542,7 @@
   --component-nav-link-hover-bg: #2E3651;
   --component-nav-link-active-bg: #2E3651;
   --component-nav-link-active-fg: #F7F8FC;
+  --component-nav-brand-accent: #00E5A0;
   --component-avatar-hue: #22D3EE;
   --component-avatar-wash: hsl(228 40% 16% / 0.55);
   --component-avatar-edge: hsl(226 60% 80% / 0.16);
@@ -562,4 +568,10 @@
   --component-meter-fill-bg: linear-gradient(90deg, #6366F1, #22D3EE);
   --component-meter-height: 6px;
   --component-meter-radius: 999px;
+  --component-appbar-background: #080C18;
+  --component-appbar-border-bottom: hsl(160 84% 53% / 0.12);
+  --component-appbar-shadow: 0 1px 0 0 hsl(0 0% 0% / 0.3), 0 4px 16px -4px hsl(0 0% 0% / 0.4);
+  --component-user-chip-hover-bg: hsl(228 34% 20% / 0.5);
+  --component-sign-out-button-hover-bg: hsl(0 72% 60% / 0.12);
+  --component-metric-rail-width: 3px;
 }
