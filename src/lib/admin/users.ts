@@ -6,9 +6,10 @@
 
 import { redirect } from 'next/navigation';
 import { requireAdmin } from '@/lib/admin/guards';
-import { findUserById, findUserByUsername, listAllUsers, type UserRecord } from '@/lib/auth/users';
+import { findUserById, findUserByUsername, listAllUsers, isDisabled, type UserRecord } from '@/lib/auth/users';
 import { updateUserRecord, lockUserRecord, unlockUserRecord, resetUserMfaRecord } from '@/lib/auth/users';
 import { unlockAccount } from '@/lib/auth/lockout';
+import type { Role } from '@/lib/auth/users';
 
 /* ------------------------------------------------------------------ */
 /* Type definitions                                                     */
@@ -75,8 +76,38 @@ export async function updateUser(formData: FormData) {
     return redirect(`/admin/users/${userId}/edit?error=${encodeURIComponent(validation.error)}`);
   }
 
-  // In production, call the actual update function
-  // await updateUserRecord(userId, { displayName: data.displayName, email: data.email, roles: data.roles, locked: data.locked, mfaEnabled: data.mfaEnabled });
+  const user = await findUserById(userId);
+  if (!user) return redirect('/admin/users?error=not_found');
+
+  // The form can set `locked`, so it needs the same guard the lockUser action
+  // has. Without it an admin could lock themselves out via the edit form.
+  if (data.locked && user.id === admin.user.id) {
+    return redirect(`/admin/users/${userId}/edit?error=${encodeURIComponent('You cannot lock your own account')}`);
+  }
+
+  // Account state is only ever changed through lockUserRecord/unlockUserRecord
+  // (plus the lockout counters), so reuse those rather than writing `locked`
+  // directly and letting the two ways of locking a user drift apart.
+  const wantsLocked = data.locked === true;
+  const wasLocked = isDisabled(userId);
+
+  try {
+    await updateUserRecord(userId, {
+      displayName: data.displayName,
+      email: data.email,
+      roles: data.roles as Role[],
+      mfaEnabled: data.mfaEnabled,
+    });
+
+    if (wantsLocked && !wasLocked) await lockUserRecord(userId);
+    if (!wantsLocked && wasLocked) {
+      await unlockUserRecord(userId);
+      await unlockAccount(userId);
+    }
+  } catch (err) {
+    console.error('[admin] updateUser failed', { userId, err });
+    return redirect(`/admin/users/${userId}/edit?error=${encodeURIComponent('Update failed, please try again')}`);
+  }
 
   redirect(`/admin/users/${userId}/edit?updated=1`);
 }
