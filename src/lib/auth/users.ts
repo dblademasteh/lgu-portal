@@ -7,9 +7,27 @@
  *
  * The demo password is hashed with scrypt on first import and cached in-module,
  * so no plaintext digest is committed to the repository.
+ *
+ * When IDP_ISSUER is set, the portal also supports authentication against an
+ * external OIDC provider. IdP users are synced into the local directory so
+ * the rest of the app (guards, admin, systems) continues to work unchanged.
  */
 
-import { hashPassword, verifyPassword } from './crypto';
+import { hashPassword, randomToken, verifyPassword } from './crypto';
+import { isIdPEnabled, type IdPUser } from '../idp/client';
+import {
+  findUserByUsernameDb as dbFindUserByUsername,
+  findUserByIdDb as dbFindUserById,
+  listUsersDb as dbListUsers,
+  authenticateDb as dbAuthenticate,
+  updateUserRecordDb as dbUpdateUserRecord,
+  lockUserRecordDb as dbLockUserRecord,
+  unlockUserRecordDb as dbUnlockUserRecord,
+  resetUserMfaRecordDb as dbResetUserMfaRecord,
+  syncIdPUserDb as dbSyncIdPUser,
+} from '../db/users';
+
+import { query } from '../db/client';
 
 /** Coarse role used for system-level authorization. */
 export const ROLES = ['employee', 'supervisor', 'admin', 'auditor'] as const;
@@ -156,6 +174,8 @@ const usersPromise = (async (): Promise<UserRecord[]> => {
 })();
 
 export async function listUsers(): Promise<DirectoryUser[]> {
+  const dbUsers = await dbListUsers();
+  if (dbUsers.length > 0) return dbUsers;
   const users = await usersPromise;
   return users.map(({ passwordHash: _passwordHash, ...user }) => user);
 }
@@ -163,6 +183,10 @@ export async function listUsers(): Promise<DirectoryUser[]> {
 export async function findUserByUsername(
   username: string,
 ): Promise<{ user: UserRecord; disabled: boolean } | null> {
+  const dbResult = await dbFindUserByUsername(username);
+  if (dbResult) {
+    return { user: dbResult.user as UserRecord, disabled: dbResult.disabled };
+  }
   const users = await usersPromise;
   const normalized = username.trim().toLowerCase();
   const user = users.find((candidate) => candidate.username.toLowerCase() === normalized);
@@ -171,18 +195,26 @@ export async function findUserByUsername(
 }
 
 export async function findUserById(id: string): Promise<UserRecord | null> {
+  const dbUser = await dbFindUserById(id);
+  if (dbUser) {
+    return { ...dbUser, locked: isDisabled(id) } as UserRecord;
+  }
   const users = await usersPromise;
-  return users.find((user) => user.id === id) ?? null;
+  const found = users.find((user) => user.id === id);
+  if (!found) return null;
+  return { ...found, locked: isDisabled(id) } as UserRecord;
 }
 
 export async function authenticate(
   username: string,
   password: string,
 ): Promise<{ user: UserRecord; disabled: boolean } | null> {
+  const dbResult = await dbAuthenticate(username, password);
+  if (dbResult) {
+    return { user: dbResult.user as UserRecord, disabled: dbResult.disabled };
+  }
   const found = await findUserByUsername(username);
   if (!found) {
-    // Hash anyway on the unknown-user path so response time does not reveal
-    // whether the username exists. Cost matches a real verification.
     await verifyPassword(password, `scrypt$${userHashParams()}$AAAA$AAAA`);
     return null;
   }
@@ -226,6 +258,19 @@ export async function listAllUsers(): Promise<Array<{
   locked: boolean;
   lastSignIn?: number;
 }>> {
+  const dbUsers = await dbListUsers();
+  if (dbUsers.length > 0) {
+    return dbUsers.map((u: DirectoryUser) => ({
+      id: u.id,
+      username: u.username,
+      displayName: u.displayName,
+      email: u.email,
+      roles: u.roles as Role[],
+      mfaEnabled: u.mfaEnabled,
+      locked: u.id === LOCKED_USER_ID,
+      lastSignIn: u.lastSignIn,
+    }));
+  }
   const users = await usersPromise;
   return users.map((user) => ({
     id: user.id,
@@ -242,8 +287,13 @@ export async function listAllUsers(): Promise<Array<{
 /** Update user record */
 export async function updateUserRecord(
   userId: string,
-  data: { displayName?: string; email?: string; roles?: Role[]; locked?: boolean; mfaEnabled?: boolean }
+  data: { displayName?: string; email?: string; roles?: Role[]; locked?: boolean; mfaEnabled?: boolean; passwordHash?: string }
 ): Promise<void> {
+  const dbAvailable = await import('../db/client').then((m) => m.getPool()).then((p) => p !== null);
+  if (dbAvailable) {
+    await dbUpdateUserRecord(userId, data as any);
+    return;
+  }
   const users = await usersPromise;
   const idx = users.findIndex((u) => u.id === userId);
   if (idx === -1) throw new Error('User not found');
@@ -256,19 +306,119 @@ export async function updateUserRecord(
     else DISABLED_USER_IDS.delete(userId);
   }
   if (data.mfaEnabled !== undefined) user.mfaEnabled = data.mfaEnabled;
+  if (data.passwordHash !== undefined) user.passwordHash = data.passwordHash;
 }
 
 /** Lock a user account */
 export async function lockUserRecord(userId: string): Promise<void> {
+  const dbAvailable = await import('../db/client').then((m) => m.getPool()).then((p) => p !== null);
+  if (dbAvailable) {
+    await dbLockUserRecord(userId);
+    return;
+  }
   await updateUserRecord(userId, { locked: true });
 }
 
 /** Unlock a user account */
 export async function unlockUserRecord(userId: string): Promise<void> {
+  const dbAvailable = await import('../db/client').then((m) => m.getPool()).then((p) => p !== null);
+  if (dbAvailable) {
+    await dbUnlockUserRecord(userId);
+    return;
+  }
   await updateUserRecord(userId, { locked: false });
 }
 
 /** Reset MFA for a user */
 export async function resetUserMfaRecord(userId: string): Promise<void> {
+  const dbAvailable = await import('../db/client').then((m) => m.getPool()).then((p) => p !== null);
+  if (dbAvailable) {
+    await dbResetUserMfaRecord(userId);
+    return;
+  }
   await updateUserRecord(userId, { mfaEnabled: false });
+}
+
+/* ------------------------------------------------------------------ */
+/* External IdP support                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Create or update a local user record from IdP userinfo.
+ *
+ * IdP users are keyed by `idp_<sub>` so they cannot collide with the seeded
+ * stub accounts. Existing records are updated in place so admin-assigned roles
+ * and other local metadata are preserved.
+ */
+export async function syncIdPUser(userinfo: IdPUser): Promise<UserRecord> {
+  try {
+    const dbUser = await dbSyncIdPUser(userinfo);
+    const { lastSignIn: _lastSignIn, ...rest } = dbUser;
+    return {
+      ...rest,
+      lastSignIn: dbUser.lastSignIn ?? undefined,
+    } as UserRecord;
+  } catch {
+    // Fallback to stub sync if DB is not available
+    const sub = userinfo.sub;
+    const userId = `idp_${sub}`;
+    const username = userinfo.preferredUsername ?? userinfo.email ?? sub;
+    const email = userinfo.email ?? `${sub}@idp.local`;
+    const displayName = userinfo.name ?? username;
+
+    const users = await usersPromise;
+    const existingIdx = users.findIndex((u) => u.id === userId);
+    if (existingIdx >= 0) {
+      const existing = users[existingIdx]!;
+      if (userinfo.name && existing.displayName !== userinfo.name) {
+        existing.displayName = userinfo.name;
+      }
+      if (userinfo.email && existing.email !== userinfo.email) {
+        existing.email = userinfo.email;
+      }
+      if (userinfo.preferredUsername && existing.username !== userinfo.preferredUsername) {
+        existing.username = userinfo.preferredUsername;
+      }
+      return existing;
+    }
+
+    const newUser: UserRecord = {
+      id: userId,
+      employeeId: `IDP-${sub}`,
+      username,
+      email,
+      displayName,
+      title: 'External User',
+      department: 'Information & Communications Technology Office',
+      roles: ['employee'],
+      mfaEnabled: false,
+      phoneLast4: '0000',
+      office: 'Provisioned via IdP',
+      timeZone: 'Asia/Manila',
+      avatarHue: Math.floor(Math.random() * 360),
+      passwordHash: await hashPassword(randomToken(32)),
+      lastSignIn: Date.now(),
+    };
+
+    users.push(newUser);
+    return newUser;
+  }
+}
+
+/**
+ * Authenticate via the external IdP.
+ *
+ * This is the entry point for the IdP callback flow. The portal has already
+ * validated the authorization code and fetched userinfo from the IdP; here we
+ * sync the user into the local directory and return a { user, disabled }
+ * envelope matching the shape of the local `authenticate()` return so the
+ * login route can treat both paths identically.
+ */
+export async function authenticateWithIdP(userinfo: IdPUser): Promise<{ user: UserRecord; disabled: boolean } | null> {
+  try {
+    const user = await syncIdPUser(userinfo);
+    return { user, disabled: false };
+  } catch {
+    return null;
+  }
 }

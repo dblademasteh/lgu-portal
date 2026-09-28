@@ -188,6 +188,8 @@ export interface SessionStore {
    */
   purgeExpired(): Promise<number>;
   listUserSessions(userId: string): Promise<Session[]>;
+  /** List every live session in the store (admin view). */
+  listAllSessions(): Promise<Session[]>;
   stats(): Promise<SessionStats>;
   /** Health check for the readiness endpoint. Must not throw. */
   probe(): Promise<StoreProbe>;

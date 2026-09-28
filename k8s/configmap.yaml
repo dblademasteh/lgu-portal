@@ -10,3 +10,9 @@ data:
   REDIS_URL: "redis://redis:6379"
   LOG_LEVEL: "info"
   # OIDC_ISSUER: "https://portal.lgu.gov.ph"
+  # Uncomment and fill in when wiring an external IdP:
+  # IDP_ISSUER: "https://keycloak.lgu.gov.ph"
+  # IDP_CLIENT_ID: "portal-client"
+  # IDP_CLIENT_SECRET: "<from secret>"
+  # IDP_SCOPES: "openid profile email"
+  # LOCAL_LOGIN_ENABLED: "false"

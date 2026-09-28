@@ -235,6 +235,10 @@ export async function listUserSessions(userId: string): Promise<Session[]> {
   );
 }
 
+export async function listAllSessions(): Promise<Session[]> {
+  return withFallback('listAllSessions', (s) => s.listAllSessions(), (s) => s.listAllSessions());
+}
+
 /* ------------------------------------------------------------------ */
 /* Stats + health (admin, readiness)                                   */
 /* ------------------------------------------------------------------ */

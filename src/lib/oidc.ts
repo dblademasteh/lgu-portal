@@ -47,6 +47,7 @@ import {
 } from './clients-store';
 import type { ClientRecord } from './clients-store';
 import type { Role } from './auth/users';
+import { RedisMap } from './redis-map';
 
 export const OIDC_ISSUER =
   process.env.OIDC_ISSUER ?? 'http://localhost:3000';
@@ -90,8 +91,8 @@ export type AuthorizationCode = {
   consumedAt: number | null;
 };
 
-const codes = new Map<string, AuthorizationCode>();
-const refreshTokens = new Map<string, { userId: string; clientId: string; scope: string; expiresAt: number }>();
+const codes = new RedisMap<string, AuthorizationCode>('lgu:oidc:code', AUTH_CODE_TTL_MS);
+const refreshTokens = new RedisMap<string, { userId: string; clientId: string; scope: string; expiresAt: number }>('lgu:oidc:refresh', REFRESH_TOKEN_TTL_MS);
 
 /* ------------------------------------------------------------------ */
 /* Clients                                                             */
@@ -112,13 +113,17 @@ export function clientAllows(client: OidcClient, roles: readonly Role[]): boolea
 
 /** Build an OidcClient view from a persisted/external client record. */
 function toClient(record: ClientRecord): OidcClient {
+  const grantTypes = ['authorization_code', 'refresh_token'];
+  if (record.clientSecret) {
+    grantTypes.push('client_credentials');
+  }
   return {
     clientId: record.clientId,
     clientSecret: record.clientSecret ?? crypto.randomUUID(),
     system: record.systemSlug ? getSystem(record.systemSlug) ?? null : null,
     allowedRoles: record.allowedRoles,
     redirectUris: record.redirectUris,
-    grantTypes: ['authorization_code', 'refresh_token'],
+    grantTypes,
     responseTypes: ['code'],
     tokenEndpointAuthMethod: 'none',
     allowedScopes: record.scopes,
@@ -303,15 +308,15 @@ export function validateAuthorizeRequest(params: URLSearchParams): AuthorizeVali
 /* Authorisation codes                                                 */
 /* ------------------------------------------------------------------ */
 
-export function issueAuthorizationCode(params: {
+export async function issueAuthorizationCode(params: {
   client: OidcClient;
   userId: string;
   redirectUri: string;
   scope: string;
   codeChallenge: string | null;
   nonce: string | null;
-}): AuthorizationCode {
-  sweepCodes();
+}): Promise<AuthorizationCode> {
+  await sweepCodes();
   const now = Date.now();
   const code: AuthorizationCode = {
     code: randomToken(32),
@@ -325,7 +330,7 @@ export function issueAuthorizationCode(params: {
     expiresAt: now + AUTH_CODE_TTL_MS,
     consumedAt: null,
   };
-  codes.set(code.code, code);
+  await codes.set(code.code, code);
   return code;
 }
 
@@ -342,22 +347,22 @@ export type CodeExchange =
  * binding, and PKCE. Every mismatch is `invalid_grant` on purpose — a distinct
  * error per failure would let an attacker probe which check failed.
  */
-export function consumeAuthorizationCode(
+export async function consumeAuthorizationCode(
   codeValue: string,
   params: { clientId: string; redirectUri: string; codeVerifier?: string | null },
-): CodeExchange {
-  const code = codes.get(codeValue);
+): Promise<CodeExchange> {
+  const code = await codes.get(codeValue);
   if (!code) return { ok: false, error: 'invalid_grant', description: 'Unknown authorization code.' };
 
   if (code.consumedAt !== null) {
     // Replay of a spent code: burn every code issued alongside it.
-    invalidateCodesForUser(code.userId);
+    await invalidateCodesForUser(code.userId);
     return { ok: false, error: 'invalid_grant', description: 'Authorization code already redeemed.' };
   }
 
   const now = Date.now();
   if (now >= code.expiresAt) {
-    codes.delete(codeValue);
+    await codes.delete(codeValue);
     return { ok: false, error: 'invalid_grant', description: 'Authorization code has expired.' };
   }
 
@@ -379,28 +384,34 @@ export function consumeAuthorizationCode(
   }
 
   code.consumedAt = now;
-  codes.delete(codeValue);
+  await codes.delete(codeValue);
   return { ok: true, code };
 }
 
-export function invalidateCodesForUser(userId: string): number {
+export async function invalidateCodesForUser(userId: string): Promise<number> {
   let removed = 0;
-  for (const [value, code] of codes) {
+  const all = await codes.values();
+  for (const code of all) {
     if (code.userId === userId) {
-      codes.delete(value);
+      await codes.delete(code.code);
       removed++;
     }
   }
   return removed;
 }
 
-function sweepCodes(): void {
+async function sweepCodes(): Promise<void> {
   const now = Date.now();
-  for (const [value, code] of codes) {
-    if (now >= code.expiresAt) codes.delete(value);
+  const all = await codes.values();
+  for (const code of all) {
+    if (now >= code.expiresAt) await codes.delete(code.code);
   }
-  for (const [value, token] of refreshTokens) {
-    if (now >= token.expiresAt) refreshTokens.delete(value);
+  const allTokenKeys = await refreshTokens.keys();
+  for (const key of allTokenKeys) {
+    const token = await refreshTokens.get(key);
+    if (token && now >= token.expiresAt) {
+      await refreshTokens.delete(key);
+    }
   }
 }
 
@@ -467,12 +478,12 @@ export async function issueTokens(
   const idToken = await signWithActiveKey(JSON.stringify(idClaims));
 
   const refreshToken = randomToken(32);
-  refreshTokens.set(sha256(refreshToken), {
+  await refreshTokens.set(sha256(refreshToken), {
     userId: subject.userId,
     clientId: client.clientId,
     scope: code.scope,
     expiresAt: Date.now() + REFRESH_TOKEN_TTL_MS,
-  });
+  }, REFRESH_TOKEN_TTL_MS);
 
   return {
     token_type: 'Bearer',
@@ -481,6 +492,41 @@ export async function issueTokens(
     access_token: accessToken,
     id_token: idToken,
     refresh_token: refreshToken,
+  };
+}
+
+/**
+ * Issue an access token for a service account (client_credentials grant).
+ *
+ * The token's subject is the client_id itself and it carries the client's
+ * allowed scopes. No refresh token or ID token is issued because there is no
+ * user involved in this flow.
+ */
+export async function issueServiceAccountToken(
+  client: OidcClient,
+  scope: string,
+): Promise<{ access_token: string; expires_in: number; scope: string; token_type: 'Bearer' }> {
+  const now = Math.floor(Date.now() / 1000);
+  const jti = randomToken(16);
+
+  const claims: JwtClaims = {
+    iss: OIDC_ISSUER,
+    sub: client.clientId,
+    aud: client.clientId,
+    iat: now,
+    exp: now + ACCESS_TOKEN_TTL_S,
+    jti,
+    scope,
+    roles: client.allowedRoles,
+  };
+
+  const accessToken = await signWithActiveKey(JSON.stringify(claims));
+
+  return {
+    token_type: 'Bearer',
+    expires_in: ACCESS_TOKEN_TTL_S,
+    scope,
+    access_token: accessToken,
   };
 }
 
@@ -494,10 +540,10 @@ export async function refreshAccessToken(
   subject: TokenSubject,
 ): Promise<RefreshResult> {
   const key = sha256(refreshTokenValue);
-  const record = refreshTokens.get(key);
+  const record = await refreshTokens.get(key);
   if (!record) return { ok: false, error: 'invalid_grant', description: 'Unknown refresh token.' };
   if (Date.now() >= record.expiresAt) {
-    refreshTokens.delete(key);
+    await refreshTokens.delete(key);
     return { ok: false, error: 'invalid_grant', description: 'Refresh token has expired.' };
   }
   if (record.clientId !== clientId) {
@@ -505,14 +551,14 @@ export async function refreshAccessToken(
   }
 
   // Rotate on every use: a replayed refresh token then fails loudly.
-  refreshTokens.delete(key);
+  await refreshTokens.delete(key);
   const rotated = randomToken(32);
-  refreshTokens.set(sha256(rotated), {
+  await refreshTokens.set(sha256(rotated), {
     userId: record.userId,
     clientId: record.clientId,
     scope: record.scope,
     expiresAt: Date.now() + REFRESH_TOKEN_TTL_MS,
-  });
+  }, REFRESH_TOKEN_TTL_MS);
 
   const now = Math.floor(Date.now() / 1000);
   const accessToken = await signWithActiveKey(

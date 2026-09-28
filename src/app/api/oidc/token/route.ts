@@ -1,13 +1,14 @@
 /**
  * POST /api/oidc/token — the token endpoint.
  *
- * Supports the two grants the portal's clients need:
+ * Supports the three grants the portal's clients need:
  *   authorization_code  (with PKCE, the only grant a public client may use)
  *   refresh_token       (rotating: the presented token is consumed and replaced)
+ *   client_credentials  (for service accounts / machine-to-machine)
  *
- * Form-encoded per RFC 6749, not JSON. Client authentication is `none` because
- * these are public clients; the PKCE verifier is what actually proves the token
- * request came from the party that started the flow.
+ * Form-encoded per RFC 6749, not JSON. Client authentication is `none` for
+ * public clients (PKCE proves the request); confidential clients use
+ * `client_secret` for client_credentials.
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
@@ -16,6 +17,7 @@ import { record } from '@/lib/auth/audit';
 import {
   consumeAuthorizationCode,
   findClient,
+  issueServiceAccountToken,
   issueTokens,
   refreshAccessToken,
 } from '@/lib/oidc';
@@ -84,7 +86,6 @@ export async function POST(request: NextRequest) {
         expires_in: result.expiresIn,
         scope: result.scope,
         access_token: result.accessToken,
-        // Rotation: the caller must adopt this and discard the presented token.
         refresh_token: result.refreshToken,
       },
       { headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' } },
@@ -101,19 +102,17 @@ export async function POST(request: NextRequest) {
       return tokenError('invalid_request', 'code and redirect_uri are required.', 400);
     }
 
-    const exchange = consumeAuthorizationCode(code, { clientId, redirectUri, codeVerifier });
+    const exchange = await consumeAuthorizationCode(code, { clientId, redirectUri, codeVerifier });
     if (!exchange.ok) {
       record('oidc.token.denied', 'denied', { target: clientId, detail: exchange.description });
       return tokenError(exchange.error, exchange.description, 400);
     }
 
-    // The user is whoever the code was issued to — not whoever is calling now.
     const user = await findUserById(exchange.code.userId);
     if (!user) {
       return tokenError('invalid_grant', 'The account for this grant no longer exists.', 400);
     }
 
-    // Signing out invalidates the subject of any code minted before it.
     const session = await resolveSubject(request);
     if (session && session.userId !== user.id) {
       return tokenError('invalid_grant', 'Session does not match the authorization grant.', 400);
@@ -139,8 +138,36 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json(tokens, {
-      headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' },
-    });
+      headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' } },
+    );
+  }
+
+  /* ---- client_credentials grant ------------------------------------ */
+  if (grantType === 'client_credentials') {
+    const clientSecret = form.get('client_secret') ?? '';
+
+    if (!clientSecret) {
+      return tokenError('invalid_request', 'client_secret is required.', 400);
+    }
+
+    if (!client.clientSecret || client.clientSecret !== clientSecret) {
+      record('oidc.token.denied', 'denied', { target: clientId, detail: 'bad client secret' });
+      return tokenError('invalid_client', 'Invalid client credentials.', 401);
+    }
+
+    if (!client.grantTypes.includes('client_credentials')) {
+      return tokenError('unauthorized_client', 'Client is not allowed to use client_credentials grant.', 400);
+    }
+
+    const requestedScope = form.get('scope') ?? '';
+    const scope = validateAndNormalizeScope(requestedScope, client.allowedScopes);
+
+    const result = await issueServiceAccountToken(client, scope);
+    record('oidc.token.issued', 'success', { actorId: clientId, target: clientId, detail: 'client_credentials' });
+
+    return NextResponse.json(result, {
+      headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' } },
+    );
   }
 
   return tokenError(
@@ -148,6 +175,23 @@ export async function POST(request: NextRequest) {
     `Grant type not supported: ${grantType}`,
     400,
   );
+}
+
+/** Validate and normalize scopes for client_credentials grant. */
+function validateAndNormalizeScope(requested: string, allowed: string[]): string {
+  const requestedSet = new Set(requested.split(' ').filter(Boolean));
+  const allowedSet = new Set(allowed);
+
+  if (requestedSet.size === 0) {
+    return allowed.join(' ');
+  }
+
+  const filtered = [...requestedSet].filter((s) => allowedSet.has(s));
+  if (filtered.length === 0) {
+    return allowed.join(' ');
+  }
+
+  return filtered.join(' ');
 }
 
 /** Resolve the signed-in subject from the request cookie, if there is one. */

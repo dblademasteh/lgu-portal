@@ -8,12 +8,21 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { authenticate } from '@/lib/auth/users';
+import { authenticate, findUserByUsername } from '@/lib/auth/users';
 import { createSession, setSessionCookie } from '@/lib/auth/sessions';
 import { record } from '@/lib/auth/audit';
 import { check, reset } from '@/lib/auth/rate-limit';
 import { randomNumericCode, safeEqual } from '@/lib/auth/crypto';
 import { safeNextPath } from '@/lib/redirect';
+import {
+  isLockedOut,
+  recordFailedAttempt,
+  recordSuccessfulAttempt,
+  getRemainingLockoutMs,
+  MAX_FAILED_ATTEMPTS,
+  LOCKOUT_DURATION_MS,
+} from '@/lib/auth/lockout';
+import { sendMfaCodeEmail, sendAccountLockedEmail } from '@/lib/email';
 
 const GENERIC_FAILURE = 'Sign-in failed. Check your credentials and try again.';
 const MAX_USERNAME = 64;
@@ -153,6 +162,38 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  /* ---- step 1: check for automatic lockout ------------------------- */
+  const lookupResult = await findUserByUsername(username);
+  if (lookupResult && isLockedOut(lookupResult.user.id)) {
+    record('auth.login.locked', 'denied', {
+      actorId: lookupResult.user.id,
+      actorLabel: lookupResult.user.username,
+      target: username,
+      ip,
+      userAgent,
+      detail: 'account locked due to too many failed attempts',
+    });
+
+    // Send lockout notification email
+    const origin = request.nextUrl.origin;
+    sendAccountLockedEmail({
+      to: lookupResult.user.email,
+      username: lookupResult.user.displayName,
+      unlockUrl: `${origin}/unlock-account?token=${encodeURIComponent(username)}`,
+    }).catch(() => {
+      console.error('[email] failed to send lockout notification');
+    });
+
+    return NextResponse.json(
+      {
+        ok: false as const,
+        status: 'locked' as const,
+        message: `Account locked due to ${MAX_FAILED_ATTEMPTS} failed attempts. Try again in ${Math.ceil(getRemainingLockoutMs(lookupResult.user.id) / 60000)} minutes.`,
+      },
+      { status: 403, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+
   /* ---- step 1: credentials --------------------------------------- */
 
   // Two independent budgets: per account, and per client.
@@ -171,9 +212,16 @@ export async function POST(request: NextRequest) {
   const result = await authenticate(username, password);
 
   if (!result) {
+    // Record failed attempt for lockout tracking if user exists
+    if (lookupResult) {
+      recordFailedAttempt(lookupResult.user.id);
+    }
     record('auth.login.failure', 'failure', { target: username, detail: 'invalid credentials', ip, userAgent });
     return fail('invalid_credentials');
   }
+
+  // Successful authentication - clear lockout
+  recordSuccessfulAttempt(result.user.id);
 
   if (result.disabled) {
     // A locked account is a real, specific state — say so rather than pretending
@@ -198,11 +246,24 @@ export async function POST(request: NextRequest) {
 
   if (result.user.mfaEnabled) {
     const challenge = `chl_${randomNumericCode(24)}`;
+    const mfaCode = randomNumericCode(6);
     mfaChallenges.set(challenge, {
       userId: result.user.id,
-      code: randomNumericCode(6),
+      code: mfaCode,
       expiresAt: Date.now() + MFA_TTL_MS,
     });
+
+    // Send MFA code via email
+    const origin = request.nextUrl.origin;
+    sendMfaCodeEmail({
+      to: result.user.email,
+      username: result.user.displayName,
+      code: mfaCode,
+      expiresInMinutes: MFA_TTL_MS / 1000 / 60,
+    }).catch(() => {
+      console.error('[email] failed to send MFA code');
+    });
+
     record('auth.mfa.required', 'challenge', {
       actorId: result.user.id,
       actorLabel: result.user.username,
@@ -214,7 +275,7 @@ export async function POST(request: NextRequest) {
         ok: true as const,
         status: 'mfa_required' as const,
         challenge,
-        maskedDestination: `SMS ending ${result.user.phoneLast4}`,
+        maskedDestination: `Email sent to ${result.user.email.replace(/(.{2})(.*)(@.*)$/, '$1***$3')}`,
         expiresInSeconds: MFA_TTL_MS / 1000,
       },
       { status: 200, headers: { 'Cache-Control': 'no-store' } },

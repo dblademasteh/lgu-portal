@@ -14,6 +14,7 @@ import { clearSessionCookie, destroySession, getSession } from '@/lib/auth/sessi
 import { readSessionCookie } from '@/lib/auth/session-cookie';
 import { record } from '@/lib/auth/audit';
 import { invalidateCodesForUser } from '@/lib/oidc';
+import { propagateLogout } from '@/lib/auth/logout-propagation';
 
 const ALLOWED_POST_LOGOUT_PATHS = new Set(['/login', '/', '/portal']);
 
@@ -23,7 +24,19 @@ async function signOut(request: NextRequest, redirectTo: string | null) {
 
   if (sessionId) {
     await destroySession(sessionId);
-    if (session) invalidateCodesForUser(session.userId);
+    if (session) {
+      invalidateCodesForUser(session.userId);
+
+      // Propagate logout to downstream systems (fire-and-forget)
+      propagateLogout({
+        userId: session.userId,
+        sessionId: session.id,
+        clientId: undefined,
+        downstreamUrls: [],
+      }).catch(() => {
+        // Log but don't block sign-out
+      });
+    }
     record('auth.logout', 'success', {
       actorId: session?.userId,
       sessionId,

@@ -120,6 +120,13 @@ export const memoryStore: SessionStore = {
       .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
   },
 
+  async listAllSessions(): Promise<Session[]> {
+    const now = Date.now();
+    return [...sessions.values()]
+      .filter((session) => isSessionLive(session, now))
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+  },
+
   async stats(): Promise<SessionStats> {
     const now = Date.now();
     let active = 0;

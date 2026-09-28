@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     await destroySession(session.id);
     // Revoke unspent codes issued under this session's user, so a code captured
     // before sign-out cannot be redeemed after it.
-    const revokedCodes = invalidateCodesForUser(session.userId);
+    const revokedCodes = await invalidateCodesForUser(session.userId);
 
     record('auth.logout', 'success', {
       actorId: session.userId,

@@ -12,11 +12,17 @@
     "tokens:build": "node scripts/generate-tokens.mjs",
     "tokens:watch": "node scripts/generate-tokens.mjs --watch",
     "tokens:validate": "node scripts/validate-tokens.mjs",
-    "verify": "npm run typecheck && npm run tokens:validate && npm run smoke"
+    "verify": "npm run typecheck && npm run tokens:validate && npm run smoke",
+    "verify:deploy": "node scripts/verify-deploy.mjs",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "db:migrate": "tsx src/lib/db/migrate.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
     "next": "^15.1.6",
+    "pg": "^8.23.0",
     "pino": "^9.0.0",
     "prom-client": "^15.1.0",
     "react": "^19.0.0",
@@ -25,10 +31,14 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.7",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
+    "@vitest/coverage-v8": "^5.0.2",
     "pino-pretty": "^11.0.0",
-    "typescript": "^5.7.3"
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.3",
+    "vitest": "^5.0.2"
   },
   "engines": {
     "node": ">=20.11"

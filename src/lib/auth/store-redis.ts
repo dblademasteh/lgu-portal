@@ -305,8 +305,35 @@ export const redisStore: SessionStore = {
         }
       });
       if (dead.length > 0) {
-        // Trim the index so revoked sessions are not re-listed forever.
         await redis.sRem(index, dead);
+        await redis.del(dead.map(sessionKey));
+      }
+      return live.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+    });
+  },
+
+  async listAllSessions(): Promise<Session[]> {
+    const now = Date.now();
+    return guard('listAllSessions', async (redis) => {
+      let cursor = 0;
+      const live: Session[] = [];
+      const dead: string[] = [];
+      do {
+        const page = await redis.scan(cursor, { MATCH: `${SESSION_PREFIX}*`, COUNT: 200 });
+        cursor = page.cursor;
+        for (const key of page.keys) {
+          const raw = await redis.get(key);
+          if (!raw) continue;
+          try {
+            const session = JSON.parse(raw) as Session;
+            if (isSessionLive(session, now)) live.push(session);
+            else dead.push(key.slice(SESSION_PREFIX.length));
+          } catch {
+            dead.push(key.slice(SESSION_PREFIX.length));
+          }
+        }
+      } while (cursor !== 0);
+      if (dead.length > 0) {
         await redis.del(dead.map(sessionKey));
       }
       return live.sort((a, b) => b.lastSeenAt - a.lastSeenAt);

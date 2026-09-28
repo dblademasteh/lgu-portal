@@ -27,8 +27,6 @@ export function SignOutButton({ next }: { next?: string }) {
       router.replace(data.redirectTo ?? '/login');
       router.refresh();
     } catch {
-      // Even if the request failed, send them to sign in: the cookie may or may
-      // not have been cleared, and the login page redirects onward if it was.
       router.replace('/login');
       router.refresh();
     }
@@ -37,10 +35,27 @@ export function SignOutButton({ next }: { next?: string }) {
   return (
     <button
       type="button"
-      className="btn btn-ghost btn-sm signout-button"
+      className="btn btn-ghost signout-button"
       onClick={signOut}
       disabled={pending}
+      aria-label="Sign out"
+      title="Sign out"
     >
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+        <polyline points="16 17 21 12 16 7" />
+        <line x1="21" y1="12" x2="9" y2="12" />
+      </svg>
       <span className="btn-label">{pending ? 'Signing out…' : 'Sign out'}</span>
     </button>
   );

@@ -8,6 +8,7 @@ import { redirect } from 'next/navigation';
 import { requireAdmin } from '@/lib/admin/guards';
 import { findUserById, findUserByUsername, listAllUsers, type UserRecord } from '@/lib/auth/users';
 import { updateUserRecord, lockUserRecord, unlockUserRecord, resetUserMfaRecord } from '@/lib/auth/users';
+import { unlockAccount } from '@/lib/auth/lockout';
 
 /* ------------------------------------------------------------------ */
 /* Type definitions                                                     */
@@ -108,6 +109,7 @@ export async function unlockUser(formData: FormData) {
   if (!userId) return redirect('/admin/users?error=missing_id');
 
   await unlockUserRecord(userId);
+  await unlockAccount(userId);
 
   redirect('/admin/users?unlocked=1');
 }

@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
   }
 
   const redirectUri = new URL('/api/oidc/callback', request.url).toString();
-  const exchange = consumeAuthorizationCode(code, {
+  const exchange = await consumeAuthorizationCode(code, {
     clientId: client.clientId,
     redirectUri,
     codeVerifier: flow.verifier,

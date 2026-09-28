@@ -27,7 +27,6 @@ export default async function PortalPage() {
   const inMaintenance = available.filter((system) => system.status === 'maintenance').length;
   const degraded = available.filter((system) => system.status === 'degraded').length;
 
-  // Pass only serializable data to client components
   const portalNavViewer = {
     user: {
       displayName: user.displayName,
@@ -43,40 +42,47 @@ export default async function PortalPage() {
       <PortalNav viewer={portalNavViewer} active="/portal" />
 
       <main className="container page-body" id="main">
-        <header className="page-head">
-          <div className="page-head-text">
-            <p className="eyebrow">Signed in as {user.employeeId}</p>
-            <h1 className="display-1">
-              Good day, {user.displayName.split(' ')[0]}.
+        <header className="portal-hero">
+          <div className="portal-hero-text">
+            <p className="portal-hero-eyebrow">Welcome to the LGU Portal</p>
+            <h1 className="portal-hero-title">
+              {user.displayName.split(' ')[0]},<br />
+              <span className="portal-hero-title-accent">what would you like to do?</span>
             </h1>
-            <p className="text-body">
+            <p className="portal-hero-description">
               {available.length} system{available.length === 1 ? '' : 's'} available to your
-              role{user.roles.length > 1 ? 's' : ''} ({user.roles.join(', ')}). Select one to
-              launch — you will not be asked to sign in again.
+              role{user.roles.length > 1 ? 's' : ''} ({user.roles.join(', ')}). Launch any system below — you will not be asked to sign in again.
             </p>
           </div>
 
-          <div className="page-stats">
-            <div className="stat">
-              <span className="stat-value">{available.length}</span>
-              <span className="stat-label">Available</span>
+          <div className="portal-hero-stats">
+            <div className="portal-stat">
+              <span className="portal-stat-value">{available.length}</span>
+              <span className="portal-stat-label">Available</span>
             </div>
-            <div className="stat">
-              <span className="stat-value">{CATEGORIES.length}</span>
-              <span className="stat-label">Categories</span>
+            <div className="portal-stat-divider" aria-hidden="true" />
+            <div className="portal-stat">
+              <span className="portal-stat-value">{CATEGORIES.length}</span>
+              <span className="portal-stat-label">Categories</span>
             </div>
-            {degraded > 0 ? (
-              <div className="stat">
-                <span className="stat-value">{degraded}</span>
-                <span className="stat-label">Degraded</span>
-              </div>
-            ) : null}
-            {inMaintenance > 0 ? (
-              <div className="stat">
-                <span className="stat-value">{inMaintenance}</span>
-                <span className="stat-label">Maintenance</span>
-              </div>
-            ) : null}
+            {degraded > 0 && (
+              <>
+                <div className="portal-stat-divider" aria-hidden="true" />
+                <div className="portal-stat">
+                  <span className="portal-stat-value portal-stat-value--warning">{degraded}</span>
+                  <span className="portal-stat-label">Degraded</span>
+                </div>
+              </>
+            )}
+            {inMaintenance > 0 && (
+              <>
+                <div className="portal-stat-divider" aria-hidden="true" />
+                <div className="portal-stat">
+                  <span className="portal-stat-value portal-stat-value--muted">{inMaintenance}</span>
+                  <span className="portal-stat-label">Maintenance</span>
+                </div>
+              </>
+            )}
           </div>
         </header>
 

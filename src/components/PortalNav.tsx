@@ -8,7 +8,7 @@
  */
 
 import Link from 'next/link';
-import { BrandLockup } from './BrandMark';
+import { BrandMark } from './BrandMark';
 import { SignOutButton } from './SignOutButton';
 import { Avatar } from './Avatar';
 import { clsx } from 'clsx';
@@ -37,16 +37,19 @@ interface PortalNavProps {
 
 export function PortalNav({ viewer, active }: { viewer: { user: { displayName: string; email: string; avatarHue: number; roles: string[] } }; active?: string }) {
   const activePath = active ?? '/portal';
-  // Admins had no route into /admin from the portal: LINKS was static, so the
-  // whole admin area was only reachable by typing the URL.
   const links = isAdmin(viewer.user.roles)
     ? [...LINKS, { href: '/admin', label: 'Admin' } as const]
     : LINKS;
 
   return (
-    <header className="nav" role="banner">
+    <header className="nav portal-appbar" role="banner">
       <div className="container nav-inner">
-        <BrandLockup href="/portal" />
+        <Link href="/portal" className="portal-brand">
+          <BrandMark size={28} />
+          <span className="portal-brand-text">
+            LGU<span className="portal-brand-accent">Portal</span>
+          </span>
+        </Link>
 
         <nav aria-label="Primary" className="nav-links">
           {links.map((link) => {
@@ -66,7 +69,7 @@ export function PortalNav({ viewer, active }: { viewer: { user: { displayName: s
         </nav>
 
         <div className="nav-identity">
-          <Link href="/account" className="user-chip">
+          <Link href="/account" className="user-chip" data-hue={String(viewer.user.avatarHue)}>
             <Avatar name={viewer.user.displayName} hue={viewer.user.avatarHue} size="sm" />
             <span className="user-chip-text">
               <span className="user-chip-name">{viewer.user.displayName}</span>

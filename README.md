@@ -217,8 +217,34 @@ These are real, and none of them are hidden in the code.
 
 ## Wiring a real IdP
 
-`src/lib/auth/*` is the seam. Replace `authenticate()` in
-`src/lib/auth/users.ts` with a call to the real directory and delete the seed
-data; the session, PKCE, and OIDC layers above it do not change. Then move the
-session store off the heap and the signing keys to RS256 before putting this in
-front of anyone.
+`src/lib/auth/*` is the seam. Two integration points are provided:
+
+### Option A: External OIDC IdP (recommended)
+
+Set `IDP_ISSUER`, `IDP_CLIENT_ID`, and optionally `IDP_CLIENT_SECRET` and
+`IDP_SCOPES` in your environment. The portal will:
+
+1. Show a **"Sign in with External IdP"** button on the login page.
+2. Redirect the browser to the IdP's authorization endpoint with PKCE S256.
+3. Exchange the returned authorization code for tokens at `/api/idp/token`.
+4. Fetch the user profile from the IdP's `userinfo` endpoint.
+5. Sync the user into the local directory at `src/lib/auth/users.ts` so the
+   rest of the app (guards, admin, systems) continues to work unchanged.
+
+IdP users are keyed `idp_<sub>` so they never collide with the seeded stub
+accounts. Admin-assigned roles are preserved across IdP logins.
+
+New IdP routes:
+- `GET /api/idp/login` — redirects to the external IdP
+- `GET /api/idp/callback` — handles the IdP response and creates a session
+- `POST /api/idp/token` — exchanges an authorization code for tokens
+
+The IdP module lives at `src/lib/idp/client.ts`. User sync lives at
+`src/lib/auth/users.ts` (`syncIdPUser`, `authenticateWithIdP`).
+
+### Option B: Replace the local stub directly
+
+Replace `authenticate()` in `src/lib/auth/users.ts` with a call to the real
+directory and delete the seed data; the session, PKCE, and OIDC layers above it
+do not change. Then move the session store off the heap and the signing keys to
+RS256 before putting this in front of anyone.

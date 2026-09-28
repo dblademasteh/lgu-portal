@@ -9,22 +9,22 @@
 
 const SIGNALS = [
   {
-    title: 'OIDC authorization code + PKCE',
-    body: 'Tokens are issued per system, per launch, and never travel in a URL.',
+    title: 'OIDC + PKCE',
+    body: 'Tokens are issued per system, per launch.',
   },
   {
     title: 'Server-side sessions',
-    body: 'The cookie is an opaque identifier. Signing out revokes it immediately.',
+    body: 'Opaque cookie. Revoked on sign-out.',
   },
   {
     title: 'Role-scoped access',
-    body: 'Each system checks your role on the server, on every launch.',
+    body: 'Checked on every launch.',
   },
 ] as const;
 
 export function TrustSignals() {
   return (
-    <ul className="trust-signals">
+    <ul className="trust-signals" aria-label="Security guarantees">
       {SIGNALS.map((signal) => (
         <li key={signal.title} className="trust-signal">
           <span className="trust-signal-mark" aria-hidden="true">

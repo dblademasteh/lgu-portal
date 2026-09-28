@@ -18,6 +18,7 @@ import { clientAllows } from '@/lib/oidc';
 import { findUserById } from '@/lib/auth/users';
 import { record } from '@/lib/auth/audit';
 import { check } from '@/lib/auth/rate-limit';
+import { hasConsent } from '@/lib/auth/consent';
 import {
   issueAuthorizationCode,
   validateAuthorizeRequest,
@@ -103,6 +104,33 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  /* ---- consent: has the user already approved these scopes? ---------- */
+  const consentStatus = params.get('consent');
+  if (consentStatus === 'denied') {
+    record('app.launch.denied', 'denied', {
+      actorId: user.id,
+      actorLabel: user.username,
+      target: client.clientId,
+      detail: 'user denied consent',
+    });
+    return errorRedirect(redirectUri, 'access_denied', 'Consent was denied.', state);
+  }
+
+  if (consentStatus !== 'approved') {
+    const scopes = scope.split(/\s+/).filter(Boolean);
+    if (!hasConsent(user.id, client.clientId, scopes)) {
+      const consentUrl = new URL('/consent', request.url);
+      consentUrl.searchParams.set('client_id', client.clientId);
+      consentUrl.searchParams.set('scope', scope);
+      if (state) consentUrl.searchParams.set('state', state);
+      consentUrl.searchParams.set('redirect_uri', redirectUri);
+      return NextResponse.redirect(consentUrl, {
+        status: 302,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+  }
+
   /* ---- throttle: one authorize per few hundred ms per session -------- */
   const limit = check('mfa', `authorize:${session.id}`);
   if (!limit.allowed) {
@@ -110,7 +138,7 @@ export async function GET(request: NextRequest) {
     return errorRedirect(redirectUri, 'access_denied', 'Too many sign-on attempts. Try again shortly.', state);
   }
 
-  const code = issueAuthorizationCode({
+  const code = await issueAuthorizationCode({
     client,
     userId: user.id,
     redirectUri,

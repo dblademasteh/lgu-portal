@@ -40,6 +40,9 @@ COPY --from=builder /app/tokens ./tokens
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/package.json ./package.json
 
+# Make entrypoint executable
+RUN chmod +x /app/scripts/docker-entrypoint.sh
+
 # Set ownership
 RUN chown -R nextjs:nodejs /app
 
@@ -50,8 +53,8 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Health check
+# Health check using node (no extra packages needed)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health/liveness || exit 1
+  CMD node -e "fetch('http://localhost:3000/api/health/liveness').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
-CMD ["node", "server.js"]
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]

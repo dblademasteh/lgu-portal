@@ -183,6 +183,7 @@ export type JwtClaims = {
   roles?: string[];
   department?: string;
   employee_id?: string;
+  events?: Record<string, unknown>;
 };
 
 export function signJwt(claims: JwtClaims, secret: string): string {
