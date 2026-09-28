@@ -11,7 +11,6 @@ import {
   type UserRecord,
   type DirectoryUser,
   ROLES,
-  LOCKED_USER_ID,
   findUserByUsername as stubFindUserByUsername,
   findUserById as stubFindUserById,
   listUsers as stubListUsers,
@@ -40,6 +39,8 @@ export type DbUser = {
   lastSignIn: number | null;
   failedAttempts: number;
   lockedUntil: number | null;
+  /** Permanent administrative disable. Distinct from the `lockedUntil` lockout. */
+  disabled: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -88,6 +89,39 @@ async function requireUsableDb(): Promise<boolean> {
   );
 }
 
+/**
+ * Rethrow a query failure instead of reporting "not found".
+ *
+ * These helpers are called after `requireUsableDb()`, so the database is known
+ * to be reachable. Any error past that point is a query-level failure -- an
+ * unmigrated schema, a missing table, a permissions problem, a deadlock -- and
+ * swallowing it as `null`/`[]` told the caller the user did not exist, which
+ * sent the request to the seeded demo directory. An empty database is the
+ * normal state right after a failed migration, so this was reachable in
+ * practice: readiness reported `database: pass` and `admin` still signed in on
+ * the shared demo password.
+ */
+function rethrowQueryFailure(operation: string, error: unknown): never {
+  const detail = error instanceof Error ? error.message : String(error);
+  throw new Error(
+    `User directory query failed during ${operation}: ${detail}. ` +
+      'DATABASE_URL is set, so a query error is not the same as "no such user" -- ' +
+      'treating it as one would fall back to the seeded demo directory.',
+    { cause: error },
+  );
+}
+
+/**
+ * True when a database is configured and is therefore authoritative.
+ *
+ * Callers used to decide "is there a database?" by checking whether the query
+ * returned rows, which is indistinguishable from an empty table. The demo
+ * directory must only be consulted when no database is configured at all.
+ */
+export function dbIsConfigured(): boolean {
+  return Boolean(process.env.DATABASE_URL);
+}
+
 function rowToDbUser(row: Record<string, unknown>): DbUser {
   return {
     id: String(row.id),
@@ -107,6 +141,7 @@ function rowToDbUser(row: Record<string, unknown>): DbUser {
     lastSignIn: row.last_sign_in ? new Date(String(row.last_sign_in)).getTime() : null,
     failedAttempts: Number(row.failed_attempts ?? 0),
     lockedUntil: row.locked_until ? new Date(String(row.locked_until)).getTime() : null,
+    disabled: Boolean(row.disabled),
     createdAt: new Date(String(row.created_at)),
     updatedAt: new Date(String(row.updated_at)),
   };
@@ -126,9 +161,9 @@ export async function findUserByUsernameDb(
     );
     if (rows.length === 0) return null;
     const user = rowToDbUser(rows[0]!);
-    return { user, disabled: user.id === LOCKED_USER_ID };
-  } catch {
-    return null;
+    return { user, disabled: user.disabled };
+  } catch (error) {
+    rethrowQueryFailure('findUserByUsernameDb', error);
   }
 }
 
@@ -141,8 +176,8 @@ export async function findUserByIdDb(id: string): Promise<DbUser | null> {
     const { rows } = await query<DbUser>('SELECT * FROM users WHERE id = $1 LIMIT 1', [id]);
     if (rows.length === 0) return null;
     return rowToDbUser(rows[0]!);
-  } catch {
-    return null;
+  } catch (error) {
+    rethrowQueryFailure('findUserByIdDb', error);
   }
 }
 
@@ -165,6 +200,7 @@ export async function listUsersDb(): Promise<DirectoryUser[]> {
         department: user.department as UserRecord['department'],
         roles: user.roles as UserRecord['roles'],
         mfaEnabled: user.mfaEnabled,
+        locked: user.disabled,
         phoneLast4: user.phoneLast4,
         office: user.office ?? '',
         timeZone: user.timeZone,
@@ -172,8 +208,8 @@ export async function listUsersDb(): Promise<DirectoryUser[]> {
         lastSignIn: user.lastSignIn ?? undefined,
       };
     });
-  } catch {
-    return [];
+  } catch (error) {
+    rethrowQueryFailure('listUsersDb', error);
   }
 }
 
@@ -222,9 +258,9 @@ export async function authenticateDb(
 
     // Successful login - reset counters
     await query('UPDATE users SET failed_attempts = 0, locked_until = NULL, last_sign_in = NOW() WHERE id = $1', [user.id]);
-    return { user, disabled: user.id === LOCKED_USER_ID };
-  } catch {
-    return null;
+    return { user, disabled: user.disabled };
+  } catch (error) {
+    rethrowQueryFailure('authenticateDb', error);
   }
 }
 
@@ -284,13 +320,24 @@ export async function updateUserRecordDb(
       sets.push(`password_hash = $${idx++}`);
       params.push(data.passwordHash);
     }
+    // `locked` is the domain term used by the admin UI and the in-memory stub;
+    // it maps to the `disabled` column. It was previously accepted here and
+    // then silently dropped, so lockUserRecordDb() built an UPDATE with no SET
+    // clauses and returned early -- a successful-looking no-op that left the
+    // account able to sign in.
+    if (data.locked !== undefined) {
+      sets.push(`disabled = $${idx++}`);
+      params.push(data.locked);
+    }
 
     if (sets.length === 0) return;
 
     params.push(userId);
     await query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${idx}`, params);
-  } catch {
-    // ignore
+  } catch (error) {
+    // Swallowing this made the admin console report "User updated" for writes
+    // that never landed.
+    rethrowQueryFailure('updateUserRecordDb', error);
   }
 }
 
@@ -348,6 +395,7 @@ export async function syncIdPUserDb(userinfo: {
     department: 'Information & Communications Technology Office',
     roles: ['employee'],
     mfaEnabled: false,
+    disabled: false,
     phoneLast4: '0000',
     office: 'Provisioned via IdP',
     passwordHash: await hashPassword(randomToken(32)),
