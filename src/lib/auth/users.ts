@@ -25,6 +25,7 @@ import {
   unlockUserRecordDb as dbUnlockUserRecord,
   resetUserMfaRecordDb as dbResetUserMfaRecord,
   syncIdPUserDb as dbSyncIdPUser,
+  dbIsConfigured,
 } from '../db/users';
 
 import { query } from '../db/client';
@@ -159,7 +160,16 @@ export const LOCKED_USER_ID = 'usr_9a4c60de';
 /** Accounts that are administratively disabled and cannot sign in. */
 const DISABLED_USER_IDS = new Set<string>([LOCKED_USER_ID]);
 
-export type DirectoryUser = Omit<UserRecord, 'passwordHash'> & { mfaEnabled: boolean };
+export type DirectoryUser = Omit<UserRecord, 'passwordHash'> & {
+  mfaEnabled: boolean;
+  /**
+   * Permanent administrative disable. Backed by the `disabled` column when a
+   * database is configured, and by DISABLED_USER_IDS in the in-memory stub.
+   * This was previously a cast-in property read as `user.id === LOCKED_USER_ID`,
+   * so the admin list showed the seeded demo id's state for every account.
+   */
+  locked: boolean;
+};
 
 // Password hashing is ~100ms and async, but the directory must be readable
 // synchronously from route handlers. Hash once on first module load.
@@ -175,9 +185,17 @@ const usersPromise = (async (): Promise<UserRecord[]> => {
 
 export async function listUsers(): Promise<DirectoryUser[]> {
   const dbUsers = await dbListUsers();
-  if (dbUsers.length > 0) return dbUsers;
+  // `dbUsers.length > 0` was the wrong test: an empty but healthy database
+  // reported zero rows and the request was answered from the seed. That is the
+  // state a failed migration leaves behind, so the empty case is the dangerous
+  // one. Decide from configuration instead -- dbListUsers throws if a
+  // configured database is unusable.
+  if (dbIsConfigured() || dbUsers.length > 0) return dbUsers;
   const users = await usersPromise;
-  return users.map(({ passwordHash: _passwordHash, ...user }) => user);
+  return users.map(({ passwordHash: _passwordHash, ...user }) => ({
+    ...user,
+    locked: DISABLED_USER_IDS.has(user.id),
+  }));
 }
 
 export async function findUserByUsername(
@@ -187,6 +205,12 @@ export async function findUserByUsername(
   if (dbResult) {
     return { user: dbResult.user as UserRecord, disabled: dbResult.disabled };
   }
+  // A configured database is authoritative: "not in the database" is a final
+  // answer. Falling through to the seed here meant an empty or unmigrated
+  // database answered every login from the hardcoded demo directory, including
+  // `admin` on the shared demo password, while readiness reported the database
+  // as healthy.
+  if (dbIsConfigured()) return null;
   const users = await usersPromise;
   const normalized = username.trim().toLowerCase();
   const user = users.find((candidate) => candidate.username.toLowerCase() === normalized);
@@ -197,8 +221,9 @@ export async function findUserByUsername(
 export async function findUserById(id: string): Promise<UserRecord | null> {
   const dbUser = await dbFindUserById(id);
   if (dbUser) {
-    return { ...dbUser, locked: isDisabled(id) } as UserRecord;
+    return { ...dbUser, locked: dbUser.disabled } as UserRecord;
   }
+  if (dbIsConfigured()) return null;
   const users = await usersPromise;
   const found = users.find((user) => user.id === id);
   if (!found) return null;
@@ -212,6 +237,11 @@ export async function authenticate(
   const dbResult = await dbAuthenticate(username, password);
   if (dbResult) {
     return { user: dbResult.user as UserRecord, disabled: dbResult.disabled };
+  }
+  // See findUserByUsername: with a database configured, a miss is a miss.
+  if (dbIsConfigured()) {
+    await verifyPassword(password, `scrypt$${userHashParams()}$AAAA$AAAA`);
+    return null;
   }
   const found = await findUserByUsername(username);
   if (!found) {
@@ -259,7 +289,7 @@ export async function listAllUsers(): Promise<Array<{
   lastSignIn?: number;
 }>> {
   const dbUsers = await dbListUsers();
-  if (dbUsers.length > 0) {
+  if (dbIsConfigured() || dbUsers.length > 0) {
     return dbUsers.map((u: DirectoryUser) => ({
       id: u.id,
       username: u.username,
@@ -267,7 +297,7 @@ export async function listAllUsers(): Promise<Array<{
       email: u.email,
       roles: u.roles as Role[],
       mfaEnabled: u.mfaEnabled,
-      locked: u.id === LOCKED_USER_ID,
+      locked: u.locked,
       lastSignIn: u.lastSignIn,
     }));
   }
