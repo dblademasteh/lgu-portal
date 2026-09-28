@@ -15,8 +15,19 @@ dist/
 # secrets — .env.example is the template that IS committed
 .env
 .env.local
+.env.production
 .env.*.local
 !.env.example
+!.env.production.example
+
+# scratch output from manual OIDC testing. `cookies.txt` and the *.log files
+# have held real session cookies and tokens; nothing in the repo needs them.
+cookies.txt
+*.log
+
+# One-off curl captures (d.json, j.json, r.json, toks.json, login.json,
+# parts.txt, verify.js) are removed from the tree rather than ignored: the names
+# are too generic to ignore safely without shadowing real files later.
 
 # generated design tokens (regenerate with `npm run tokens:build`)
 # src/app/tokens.css is intentionally NOT ignored: it is committed so the app
